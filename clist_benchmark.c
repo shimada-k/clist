@@ -28,7 +28,7 @@ struct sample_object{
 unsigned int count, spilled;
 
 /*
-	リングバッファにデータをpushするスレッド
+	循環リストにデータをpushするスレッド
 */
 void *send_worker(void *p)
 {
@@ -80,7 +80,7 @@ void *send_worker(void *p)
 }
 
 /*
-	リングバッファからデータを回収するスレッド
+	循環リストからデータを回収するスレッド
 */
 void *recieve_worker(void *p)
 {
@@ -176,9 +176,8 @@ int main(int argc, char *argv[])
 	/* ベンチマーク結果を出力 */
 	puts("------------ベンチマーク結果---------------");
 	printf("入出力オブジェクト総数：%d\n", count);
-	printf("リングバッファの総回転数：%d\n", count / (RBUF_NR_STEP * RBUF_NR_STEP_COMPOSED));
+	printf("循環リストの総回転数：%d\n", count / (RBUF_NR_STEP * RBUF_NR_STEP_COMPOSED));
 	printf("データのpushをリトライした回数：%d\n", spilled);
-	puts("--------------------------------------");
 
 	return 0;
 }
