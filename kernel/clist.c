@@ -3,7 +3,7 @@
 #include <linux/slab.h>	/* kzalloc */
 #include <linux/module.h>	/* EXPORT_SYMBOL */
 
-#include "clist.h"
+#include <linux/clist.h>
 
 /***********************************
 *

@@ -54,6 +54,17 @@ static void clist_rmemcpy(void *dest, size_t len, struct clist_controler *clist_
 	}
 }
 
+/*
+	循環リストからデータをコピーする関数 w_currのエントリからデータを読む clist_free()の直前で呼び出される前提
+	@dest コピー先のアドレス
+	@clist_ctl 管理構造体のアドレス
+*/
+static void clist_rmemcpy_end(void *dest, size_t len, struct clist_controler *clist_ctl)
+{
+	memcpy(dest, clist_ctl->w_curr->data, len);
+	clist_ctl->w_curr->curr_ptr -= len;
+}
+
 
 /***********************************
 *
@@ -169,6 +180,44 @@ size_t clist_writable_len(const struct clist_controler *clist_ctl, int *first_le
 	return flen + (burst * clist_ctl->node_len);
 }
 
+/*
+	循環リスト内に存在するすべてのデータのサイズを返す関数
+	@clist_ctl 管理用構造体のアドレス
+	@first_len ノードに残っているバイト数を格納する関数（任意）
+	@nr_burst ノード丸ごと読む場合、いくつのノードか（任意）
+	@remain_len w_currに存在するデータ量（任意）
+	return 存在しているデータのサイズ（バイト）
+
+	※read中、write中すべてのデータを計算する。この関数を呼び出すとclistは入出力禁止モードに突入する clist_free()の直前に呼び出すこと
+*/
+size_t clist_current_len(struct clist_controler *clist_ctl, int *first_len, int *nr_burst, int *remain_len)
+{
+	int first, burst, remain;
+
+	clist_ctl->state = CLIST_STATE_COLD;	/* 入出力禁止状態に遷移させる */
+
+	clist_readable_len(clist_ctl, &first, &burst);
+
+	remain = (clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data);
+
+#ifdef DEBUG
+	printf("clist_current_len read_wait_length:%d first:%d nr_burst:%d remain:%d\n", clist_ctl->read_wait_length, first, burst, remain);
+#endif
+
+	/* NULLでなかったら引数のアドレスに代入 */
+	if(first_len){
+		*first_len = first;
+	}
+	if(nr_burst){
+		*nr_burst = burst;
+	}
+	if(remain_len){
+		*remain_len = remain;
+	}
+
+	return first + (burst * clist_ctl->node_len) + remain;
+}
+
 
 /*
 	メモリをallocして循環リストを構築する関数
@@ -228,6 +277,8 @@ struct clist_controler *clist_alloc(int nr_node, int nr_composed, size_t object_
 	/* 初期値を代入 */
 	clist_ctl->w_curr = &clist_ctl->nodes[0];
 	clist_ctl->r_curr = &clist_ctl->nodes[0];
+
+	clist_ctl->state = CLIST_STATE_HOT;
 
 	return clist_ctl;
 }
@@ -344,7 +395,7 @@ int clist_push(const void *data, size_t len, struct clist_controler *clist_ctl)
 }
 
 /*
-	循環リストからノードを一つ取り除く関数
+	循環リストからlenだけデータを読む関数
 	@data データを格納するアドレス
 	@len データの長さ
 	return dataに格納したデータサイズ
@@ -419,5 +470,25 @@ int clist_pull(void *data, size_t len, struct clist_controler *clist_ctl)
 	}
 
 	return ret;
+}
+
+
+/*
+	循環リストからw_currのノードからデータを読む関数
+	@data データを格納するアドレス
+	@len データの長さ
+	return dataに格納したデータサイズ
+
+	※最後に呼び出される関数
+*/
+int clist_pull_end(void *data, int len, struct clist_controler *clist_ctl)
+{
+	if(clist_ctl->state == CLIST_STATE_HOT){
+		return -ECANCELED;
+	}
+
+	clist_rmemcpy_end(data, len, clist_ctl);
+
+	return len;	
 }
 

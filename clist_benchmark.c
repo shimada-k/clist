@@ -17,6 +17,8 @@
 
 #define RECV_GRAIN_SIZE		6	/* recieve_workerが受信するデータ単位量（オブジェクトの数） */
 
+static int death_flag = 0;
+
 unsigned int count;
 
 struct sample_object{
@@ -40,6 +42,10 @@ void *send_worker(void *p)
 	clist_ctl = (struct clist_controler *)p;
 
 	while(1){
+		if(death_flag == 1){
+			break;
+		}
+
 		sleep(SEND_FREQUENCY);
 
 		for(i = 0; i < SEND_GRAIN_SIZE; i++){
@@ -77,6 +83,10 @@ void *send_worker(void *p)
 			spilled++;
 		}
 	}
+
+	death_flag = 2;
+
+	return NULL;
 }
 
 /*
@@ -95,6 +105,9 @@ void *recieve_worker(void *p)
 	clist_ctl = (struct clist_controler *)p;
 
 	while(1){
+		if(death_flag == 2){
+			break;
+		}
 
 		sleep_time = RECV_FREQUENCY();
 #ifdef DEBUG
@@ -129,7 +142,44 @@ void *recieve_worker(void *p)
 
 	free(sobj);
 
+	return NULL;
+
 }
+
+void recieve_end(struct clist_controler *clist_ctl)
+{
+	int first_len, nr_burst, remain_len, pick_len, i;
+	struct sample_object *sobj;
+
+	clist_current_len(clist_ctl, &first_len, &nr_burst, &remain_len);
+
+	sobj = calloc(remain_len / sizeof(struct sample_object), sizeof(struct sample_object));
+
+	while(1){
+		pick_len = clist_pull((void *)sobj, remain_len, clist_ctl);
+
+#ifdef DEBUG
+		puts("\tclist_pull done");
+		for(i = 0; i < (pick_len / sizeof(struct sample_object)); i++){
+			printf("\tsobj.id_no:%llu\n", sobj[i].id_no);
+		}
+		puts("\t*****");
+#endif
+
+		if(pick_len == 0){
+			pick_len = clist_pull_end(sobj, remain_len, clist_ctl);
+#ifdef DEBUG
+			puts("\tclist_pull_end() done");
+			for(i = 0; i < (pick_len / sizeof(struct sample_object)); i++){
+				printf("\tsobj.id_no:%llu\n", sobj[i].id_no);
+			}
+			puts("\t*****");
+#endif
+			break;
+		}
+	}
+}
+
 
 #define RBUF_NR_STEP			8
 #define RBUF_NR_STEP_COMPOSED	6
@@ -158,8 +208,7 @@ int main(int argc, char *argv[])
 		if(sigwait(&ss, &signo) == 0){	/* シグナルが受信できたら */
 			if(signo == SIGTERM){
 				puts("main:sigterm recept");
-				pthread_cancel(send);
-				pthread_cancel(recv);
+				death_flag = 1;
 				break;
 			}
 		}
@@ -170,8 +219,9 @@ int main(int argc, char *argv[])
 	pthread_join(send, NULL);
 	pthread_join(recv, NULL);
 
-	clist_free(clist_ctl);
+	recieve_end(clist_ctl);
 
+	clist_free(clist_ctl);
 
 	/* ベンチマーク結果を出力 */
 	puts("------------ベンチマーク結果---------------");
