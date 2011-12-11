@@ -148,10 +148,10 @@ void *recieve_worker(void *p)
 
 void recieve_end(struct clist_controler *clist_ctl)
 {
-	int first_len, nr_burst, remain_len, pick_len, i;
+	int remain_len, pick_len, i;
 	struct sample_object *sobj;
 
-	clist_current_len(clist_ctl, &first_len, &nr_burst, &remain_len);
+	remain_len = clist_set_cold(clist_ctl, NULL, NULL);
 
 	sobj = calloc(remain_len / sizeof(struct sample_object), sizeof(struct sample_object));
 
@@ -166,7 +166,7 @@ void recieve_end(struct clist_controler *clist_ctl)
 		puts("\t*****");
 #endif
 
-		if(pick_len == 0){
+		if(pick_len != remain_len || pick_len == 0){
 			pick_len = clist_pull_end(sobj, remain_len, clist_ctl);
 #ifdef DEBUG
 			puts("\tclist_pull_end() done");

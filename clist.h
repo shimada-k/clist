@@ -29,9 +29,15 @@ struct clist_controler{
 /* プロトタイプ宣言 */
 size_t clist_readable_len(const struct clist_controler *clist_ctl, int *first_len, int *nr_entry);
 size_t clist_writable_len(const struct clist_controler *clist_ctl, int *first_len, int *nr_burst);
-size_t clist_current_len(struct clist_controler *clist_ctl, int *first_len, int *nr_burst, int *remain_len);
+
+/* データ構造のalloc/free */
 struct clist_controler *clist_alloc(int nr_node, int nr_composed, size_t object_size);
 void clist_free(struct clist_controler *clist_ctl);
+
+/* 循環リストにデータを書き込む/読み込む関数 */
 int clist_push(const void *data, size_t len, struct clist_controler *clist_ctl);
 int clist_pull(void *data, size_t len, struct clist_controler *clist_ctl);
+
+/* 最後にデータを読みきる関数 */
+size_t clist_set_cold(struct clist_controler *clist_ctl, int *first_len, int *nr_burst);
 int clist_pull_end(void *data, int len, struct clist_controler *clist_ctl);
