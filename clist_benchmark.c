@@ -35,7 +35,7 @@ unsigned int count, spilled;
 void *send_worker(void *p)
 {
 	int i;
-	size_t ret;
+	size_t ret = 0;
 	struct clist_controler *clist_ctl;
 	struct sample_object sobj[SEND_GRAIN_SIZE];
 
@@ -55,33 +55,30 @@ void *send_worker(void *p)
 			count++;
 		}
 
-		ret = clist_push((void *)sobj, sizeof(struct sample_object) * SEND_GRAIN_SIZE, clist_ctl);
+		for(i = 0; i < SEND_GRAIN_SIZE; i++){
+			ret += clist_push_one((void *)&sobj[i], clist_ctl);
+		}
+		//ret = clist_push_order((void *)sobj, SEND_GRAIN_SIZE, clist_ctl);
 
-		if(ret != sizeof(struct sample_object) * SEND_GRAIN_SIZE){	/* 失敗したのでリトライ */
-			int nr_written;
+		if(ret != SEND_GRAIN_SIZE){	/* 失敗したのでリトライ */
 			struct sample_object *s;
 
-			nr_written = ret / sizeof(struct sample_object);
-
-			/* clist_push()で一つも書き込むことができなかった場合は？？ */
-
-			printf("send_data_worker() ret:%ld, nr_written:%d\n", ret, nr_written);
-
 			/* clist_push()に失敗したデータを表示 */
-			for(i = 0; i < SEND_GRAIN_SIZE - nr_written; i++){
+			for(i = 0; i < SEND_GRAIN_SIZE - ret; i++){
 
-				s = &sobj[nr_written + i];
+				s = &sobj[ret + i];
 
 #ifdef DEBUG
-				printf("\t*** sobj.id_no:%llu\n", s->id_no);
+				printf("\t*** sobj[%d].id_no:%llu\n", i, s->id_no);
 #endif
 			}
 
 			sleep(15);
-			clist_push((void *)&sobj[nr_written], sizeof(struct sample_object) * (SEND_GRAIN_SIZE - nr_written), clist_ctl);
+			clist_push_order((void *)&sobj[ret], (SEND_GRAIN_SIZE - ret), clist_ctl);
 
 			spilled++;
 		}
+		ret = 0;
 	}
 
 	death_flag = 2;
@@ -115,28 +112,22 @@ void *recieve_worker(void *p)
 #endif
 		sleep(sleep_time);
 
-		while(((rlen = clist_readable_len(clist_ctl, NULL, NULL)) / clist_ctl->node_len) > 0){
+		while(((rlen = clist_pullable_objects(clist_ctl, NULL, NULL)) / clist_ctl->nr_composed) > 0){
 
 			int pick_len;
 
-			pick_len = clist_pull((void *)sobj, sizeof(struct sample_object) * RECV_GRAIN_SIZE, clist_ctl);
+			pick_len = clist_pull_order((void *)sobj, RECV_GRAIN_SIZE, clist_ctl);
 
 #ifdef DEBUG
 			printf("recieve_data_worker pick_len:%d\n",pick_len);
 #endif
 
-			if(pick_len % sizeof(struct sample_object) == 0){
 #ifdef DEBUG
-				for(i = 0; i < (pick_len / sizeof(struct sample_object)); i++){
-
-					printf("\tsobj.id_no:%llu\n", sobj[i].id_no);
-				}
-				puts("\t*****");
+			for(i = 0; i < pick_len; i++){
+				printf("\tsobj[%d].id_no:%llu\n", i, sobj[i].id_no);
+			}
+			puts("\t*****");
 #endif
-			}
-			else{
-				break;
-			}
 		}
 	}
 
@@ -153,15 +144,15 @@ void recieve_end(struct clist_controler *clist_ctl)
 
 	remain_len = clist_set_cold(clist_ctl, NULL, NULL);
 
-	sobj = calloc(remain_len / sizeof(struct sample_object), sizeof(struct sample_object));
+	sobj = calloc(remain_len, sizeof(struct sample_object));
 
 	while(1){
-		pick_len = clist_pull((void *)sobj, remain_len, clist_ctl);
+		pick_len = clist_pull_order((void *)sobj, remain_len, clist_ctl);
 
 #ifdef DEBUG
 		puts("\tclist_pull done");
-		for(i = 0; i < (pick_len / sizeof(struct sample_object)); i++){
-			printf("\tsobj.id_no:%llu\n", sobj[i].id_no);
+		for(i = 0; i < pick_len; i++){
+			printf("\tsobj[%d].id_no:%llu\n", i, sobj[i].id_no);
 		}
 		puts("\t*****");
 #endif
@@ -170,8 +161,8 @@ void recieve_end(struct clist_controler *clist_ctl)
 			pick_len = clist_pull_end(sobj, remain_len, clist_ctl);
 #ifdef DEBUG
 			puts("\tclist_pull_end() done");
-			for(i = 0; i < (pick_len / sizeof(struct sample_object)); i++){
-				printf("\tsobj.id_no:%llu\n", sobj[i].id_no);
+			for(i = 0; i < pick_len; i++){
+				printf("\tsobj[%d].id_no:%llu\n", i, sobj[i].id_no);
 			}
 			puts("\t*****");
 #endif
