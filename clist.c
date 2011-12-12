@@ -30,7 +30,7 @@ static void clist_wmemcpy(const void *src, int n, struct clist_controler *clist_
 
 	if(clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data == clist_ctl->node_len){
 		clist_ctl->w_curr = clist_ctl->w_curr->next_node;		/* ノードが一杯になったので、次のノードにアドレスをつなぐ */
-		clist_ctl->read_wait_length++;
+		clist_ctl->pull_wait_length++;
 	}
 }
 
@@ -57,7 +57,7 @@ static void clist_rmemcpy(void *dest, int n, struct clist_controler *clist_ctl)
 
 	if(clist_ctl->r_curr->curr_ptr - clist_ctl->r_curr->data == 0){
 		clist_ctl->r_curr = clist_ctl->r_curr->next_node;		/* w_currにノード1つ分だけ近づける */
-		clist_ctl->read_wait_length--;
+		clist_ctl->pull_wait_length--;
 	}
 }
 
@@ -80,11 +80,11 @@ int clist_pullable_objects(const struct clist_controler *clist_ctl, int *n_first
 {
 	int first, burst;
 
-	if(clist_ctl->read_wait_length == 0){
+	if(clist_ctl->pull_wait_length == 0){
 		first = 0;
 		burst = 0;
 	}
-	else if(clist_ctl->read_wait_length >= 1){
+	else if(clist_ctl->pull_wait_length >= 1){
 			/* 読み残しのバイト数を計算 */
 			first = (clist_ctl->r_curr->curr_ptr - clist_ctl->r_curr->data) / clist_ctl->object_size;
 
@@ -92,20 +92,20 @@ int clist_pullable_objects(const struct clist_controler *clist_ctl, int *n_first
 
 			if(first == clist_ctl->node_len){
 				first = 0;
-				burst = clist_ctl->read_wait_length;
+				burst = clist_ctl->pull_wait_length;
 			}
 			else{
 				/* 読み残しの分もsub_nodeに含まれているので1を引く */
-				burst = clist_ctl->read_wait_length - 1;
+				burst = clist_ctl->pull_wait_length - 1;
 			}
 		}
 		else{	/* 読み残し無し *first == 0 */
-			burst = clist_ctl->read_wait_length;
+			burst = clist_ctl->pull_wait_length;
 		}
 	}
 
 #ifdef DEBUG
-	printf("clist_pullable_objects read_wait_length:%d first:%d n_burst:%d\n", clist_ctl->read_wait_length, first, burst);
+	printf("clist_pullable_objects pull_wait_length:%d first:%d n_burst:%d\n", clist_ctl->pull_wait_length, first, burst);
 #endif
 
 	/* NULLでなかったら引数のアドレスに代入 */
@@ -132,7 +132,7 @@ int clist_pushable_objects(const struct clist_controler *clist_ctl, int *n_first
 {
 	int curr_len, flen, burst;
 
-	if(clist_ctl->read_wait_length == clist_ctl->nr_node){
+	if(clist_ctl->pull_wait_length == clist_ctl->nr_node){
 		/* w_currがr_currに追いついているなら0 */
 		flen = 0;
 		burst = 0;
@@ -140,7 +140,7 @@ int clist_pushable_objects(const struct clist_controler *clist_ctl, int *n_first
 	else{
 		/* w_currに何バイトまで書き込みされているか計算 */
 		curr_len = clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data;
-		burst = clist_ctl->nr_node - clist_ctl->read_wait_length;
+		burst = clist_ctl->nr_node - clist_ctl->pull_wait_length;
 
 		/* w_currにあと何バイト書き込めるか計算 */
 		if(clist_ctl->node_len > curr_len){
@@ -156,7 +156,7 @@ int clist_pushable_objects(const struct clist_controler *clist_ctl, int *n_first
 	}
 
 #ifdef DEBUG
-	printf("clist_pushable_objects() nr_node:%d - read_wait_length:%d = %d\n", clist_ctl->nr_node, clist_ctl->read_wait_length, clist_ctl->nr_node - clist_ctl->read_wait_length);
+	printf("clist_pushable_objects() nr_node:%d - pull_wait_length:%d = %d\n", clist_ctl->nr_node, clist_ctl->pull_wait_length, clist_ctl->nr_node - clist_ctl->pull_wait_length);
 #endif
 
 	/* 引数のアドレスが有効なら代入する */
@@ -193,7 +193,7 @@ int clist_set_cold(struct clist_controler *clist_ctl, int *n_first, int *n_burst
 	clist_pullable_objects(clist_ctl, &first, &burst);
 
 #ifdef DEBUG
-	printf("clist_current_len read_wait_length:%d first:%d n_burst:%d\n", clist_ctl->read_wait_length, first, burst);
+	printf("clist_current_len pull_wait_length:%d first:%d n_burst:%d\n", clist_ctl->pull_wait_length, first, burst);
 #endif
 
 	/* NULLでなかったら引数のアドレスに代入 */
@@ -226,7 +226,7 @@ struct clist_controler *clist_alloc(int nr_node, int nr_composed, int object_siz
 		return NULL;
 	}
 
-	clist_ctl->read_wait_length = 0;
+	clist_ctl->pull_wait_length = 0;
 
 	clist_ctl->nr_node = nr_node;
 	clist_ctl->node_len = object_size * nr_composed;
@@ -364,7 +364,7 @@ int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 
 		if(clist_ctl->w_curr == clist_ctl->r_curr){
 #ifdef DEBUG
-				printf("clist_push() w_curr == r_curr. alloc more memory or retry. read_wait_length:%d\n", clist_ctl->read_wait_length);
+				printf("clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
 #endif	
 			return n_first;
 		}
@@ -392,7 +392,7 @@ int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 
 			if(clist_ctl->w_curr == clist_ctl->r_curr){
 #ifdef DEBUG
-				printf("clist_push() w_curr == r_curr. alloc more memory or retry. read_wait_length:%d\n", clist_ctl->read_wait_length);
+				printf("clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
 #endif	
 				return n_first;
 			}

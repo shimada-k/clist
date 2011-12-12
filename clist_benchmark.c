@@ -91,7 +91,7 @@ void *send_worker(void *p)
 */
 void *recieve_worker(void *p)
 {
-	int sleep_time, rlen, i;
+	int sleep_time, i;
 	struct sample_object *sobj;
 	struct clist_controler *clist_ctl;
 
@@ -112,7 +112,7 @@ void *recieve_worker(void *p)
 #endif
 		sleep(sleep_time);
 
-		while(((rlen = clist_pullable_objects(clist_ctl, NULL, NULL)) / clist_ctl->nr_composed) > 0){
+		while(clist_wlen(clist_ctl) > 0){
 
 			int pick_len;
 

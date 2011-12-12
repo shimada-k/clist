@@ -1,6 +1,8 @@
 #define CLIST_STATE_HOT	1
 #define CLIST_STATE_COLD	0
 
+#define clist_wlen(ctl)	ctl->pull_wait_length
+
 /* 循環リストのノード */
 struct clist_node{
 	void *data;		/* ここにメモリを確保する */
@@ -13,7 +15,7 @@ struct clist_node{
 struct clist_controler{
 	int state;		/* CLIST_STATE_COLD:循環リストに対しての入出力禁止 CLIST_STATE_HOT:循環リストに対しての入出力可能*/
 
-	int read_wait_length;	/* read待ちのエントリの数 */
+	int pull_wait_length;	/* pull待ちのnodeの数 */
 	int nr_node, node_len;
 	int nr_composed, object_size;
 
