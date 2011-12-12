@@ -2,6 +2,8 @@
 #define CLIST_STATE_COLD	0
 
 #define clist_wlen(ctl)	ctl->pull_wait_length
+#define objs_to_byte(ctl, n)	(ctl->object_size * n)
+#define byte_to_objs(ctl, byte)	(byte / ctl->object_size)
 
 /* 循環リストのノード */
 struct clist_node{

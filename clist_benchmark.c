@@ -55,10 +55,10 @@ void *send_worker(void *p)
 			count++;
 		}
 
-		for(i = 0; i < SEND_GRAIN_SIZE; i++){
-			ret += clist_push_one((void *)&sobj[i], clist_ctl);
-		}
-		//ret = clist_push_order((void *)sobj, SEND_GRAIN_SIZE, clist_ctl);
+		//for(i = 0; i < SEND_GRAIN_SIZE; i++){
+		//	ret += clist_push_one((void *)&sobj[i], clist_ctl);
+		//}
+		ret = clist_push_order((void *)sobj, SEND_GRAIN_SIZE, clist_ctl);
 
 		if(ret != SEND_GRAIN_SIZE){	/* 失敗したのでリトライ */
 			struct sample_object *s;
@@ -114,9 +114,13 @@ void *recieve_worker(void *p)
 
 		while(clist_wlen(clist_ctl) > 0){
 
-			int pick_len;
+			int pick_len = 0;
 
-			pick_len = clist_pull_order((void *)sobj, RECV_GRAIN_SIZE, clist_ctl);
+			//pick_len = clist_pull_order((void *)sobj, RECV_GRAIN_SIZE, clist_ctl);
+
+			for(i = 0; i < RECV_GRAIN_SIZE; i++){
+				pick_len += clist_pull_one((void *)&sobj[i], clist_ctl);
+			}
 
 #ifdef DEBUG
 			printf("recieve_data_worker pick_len:%d\n",pick_len);

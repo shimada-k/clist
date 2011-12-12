@@ -78,21 +78,23 @@ static int clbench_release(struct inode* inode, struct file* filp)
 /* read(2) */
 static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* offset)
 {
-	int actually_read;
+	int actually_pulled, objects;
 	void *temp_mem;
+
+	objects = count / sizeof(struct lb_object);
 
 	/* 中間メモリを確保 */
 	temp_mem = (void *)kzalloc(count, GFP_KERNEL);
 
 	if(sigspec.sr_status == SIG_READY){
 
-		actually_read = clist_pull(temp_mem, count, clist_ctl);
+		actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
 
 		/* このコードはタイマルーチン経由 */
-		printk(KERN_INFO "%s : count = %d, actually_read:%d\n", log_prefix, (int)count, actually_read);
+		printk(KERN_INFO "%s : count = %d, actually_pulled:%d\n", log_prefix, (int)count, actually_pulled);
 
 		/* ユーザ空間にコピー */
-		if(copy_to_user(buf, temp_mem, actually_read)){
+		if(copy_to_user(buf, temp_mem, objs_to_byte(clist_ctl, actually_pulled))){
 			printk(KERN_WARNING "%s : copy_to_user failed\n", log_prefix);
 			return -EFAULT;
 		}
@@ -101,19 +103,19 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 	else if(sigspec.sr_status == SIGRESET_REQUEST){
 
 		if(end_flag){
-			actually_read = clist_pull_end(temp_mem, count, clist_ctl);
+			actually_pulled = clist_pull_end(temp_mem, objects, clist_ctl);
 		}
 		else{
-			actually_read = clist_pull(temp_mem, count, clist_ctl);
+			actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
 		}
 
-		if(actually_read < 0){	/* エラー処理 */
+		if(actually_pulled < 0){	/* エラー処理 */
 			printk(KERN_INFO "%s : Error clist_pull failed\n", log_prefix);
-			return actually_read;
+			return actually_pulled;
 		}
 
 		/* ユーザ空間にコピー */
-		if(copy_to_user(buf, temp_mem, actually_read)){
+		if(copy_to_user(buf, temp_mem, objs_to_byte(clist_ctl, actually_pulled))){
 			printk(KERN_WARNING "%s : copy_to_user failed\n", log_prefix);
 
 			return -EFAULT;
@@ -124,7 +126,7 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 		}
 
 		/* 条件が揃えば次の呼び出しはclist_pull_end() */
-		if(end_flag == 0 && (count != actually_read || actually_read == 0)){
+		if(end_flag == 0 && (count != actually_pulled || actually_pulled == 0)){
 			printk(KERN_INFO "%s : now, call clist_pusll_end(), next\n", log_prefix);
 			end_flag = 1;
 		}
@@ -138,9 +140,9 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 	/* 中間メモリを解放 */
 	kfree(temp_mem);
 
-	*offset += actually_read;
+	*offset += objs_to_byte(clist_ctl, actually_pulled);
 
-	return actually_read;
+	return objs_to_byte(clist_ctl, actually_pulled);
 }
 
 /* ioctl(2) ※file_operations->unlocked_ioctl対応 */
@@ -252,11 +254,9 @@ static struct file_operations clbench_fops = {
 */
 static void clbench_flush(unsigned long __data)
 {
-	int len = clist_readable_len(clist_ctl, NULL, NULL);
-
 	if(sigspec.sr_status == SIG_READY){	/* SIG_READYである間はタイマは生きている */
 
-		if((len / clist_ctl->node_len) > 0){	/* read待ちのノードが1つ以上あれば */
+		if(clist_wlen(clist_ctl) > 0){	/* read待ちのノードが1つ以上あれば */
 
 			/* カーネルからユーザスレッドにシグナルを送る */
 			send_sig_info(sigspec.signo, &sigspec.info, sigspec.t);
@@ -286,7 +286,7 @@ void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
 	lb.src_cpu = src_cpu;
 	lb.dst_cpu = this_cpu;
 
-	clist_push((void *)&lb, 1 * sizeof(struct lb_object), clist_ctl);
+	clist_push_one((void *)&lb, clist_ctl);
 }
 
 EXPORT_SYMBOL(clbench_add_object);
