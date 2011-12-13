@@ -91,7 +91,7 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 		actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
 
 		/* このコードはタイマルーチン経由 */
-		printk(KERN_INFO "%s : count = %d, actually_pulled:%d\n", log_prefix, (int)count, actually_pulled);
+		printk(KERN_INFO "%s : count = %d, actually_pulled:%d, wlen:%d\n", log_prefix, (int)count, actually_pulled, clist_wlen(clist_ctl));
 
 		/* ユーザ空間にコピー */
 		if(copy_to_user(buf, temp_mem, objs_to_byte(clist_ctl, actually_pulled))){
@@ -288,8 +288,8 @@ void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
 
 	clist_push_one((void *)&lb, clist_ctl);
 }
-
 EXPORT_SYMBOL(clbench_add_object);
+
 
 /*
 	insmod時に呼び出される関数
