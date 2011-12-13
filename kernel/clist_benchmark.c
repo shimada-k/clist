@@ -57,7 +57,7 @@ static struct clist_controler *clist_ctl;
 static struct signal_spec sigspec;
 static struct timer_list flush_timer;
 
-#define FLUSH_PERIOD	2000	/* この周期でタイマーが設定される */
+#define FLUSH_PERIOD	1500	/* この周期でタイマーが設定される（単位：ミリ秒） */
 
 extern int send_sig_info(int sig, struct siginfo *info, struct task_struct *p);
 
@@ -71,6 +71,14 @@ static int clbench_open(struct inode *inode, struct file *filp)
 /* close(2) */
 static int clbench_release(struct inode* inode, struct file* filp)
 {
+	if(sigspec.sr_status == SIGRESET_ACCEPTED){
+		/* 循環リストを解放 */
+		clist_free(clist_ctl);
+	}
+	else{
+		printk(KERN_INFO "%s : Warning sr_status isn't SIGRESET_ACCEPTED\n", log_prefix);
+	}
+
 	printk(KERN_INFO "%s : clbench release\n", log_prefix);
 	return 0;
 }
@@ -78,7 +86,7 @@ static int clbench_release(struct inode* inode, struct file* filp)
 /* read(2) */
 static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* offset)
 {
-	int actually_pulled, objects;
+	int actually_pulled, objects, ret;
 	void *temp_mem;
 
 	objects = count / sizeof(struct lb_object);
@@ -90,11 +98,14 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 
 		actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
 
+		/* pullしたバイト数を計算 */
+		ret = objs_to_byte(clist_ctl, actually_pulled);
+
 		/* このコードはタイマルーチン経由 */
 		printk(KERN_INFO "%s : count = %d, actually_pulled:%d, wlen:%d\n", log_prefix, (int)count, actually_pulled, clist_wlen(clist_ctl));
 
 		/* ユーザ空間にコピー */
-		if(copy_to_user(buf, temp_mem, objs_to_byte(clist_ctl, actually_pulled))){
+		if(copy_to_user(buf, temp_mem, ret)){
 			printk(KERN_WARNING "%s : copy_to_user failed\n", log_prefix);
 			return -EFAULT;
 		}
@@ -114,8 +125,11 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 			return actually_pulled;
 		}
 
+		/* pullしたバイト数を計算 */
+		ret = objs_to_byte(clist_ctl, actually_pulled);
+
 		/* ユーザ空間にコピー */
-		if(copy_to_user(buf, temp_mem, objs_to_byte(clist_ctl, actually_pulled))){
+		if(copy_to_user(buf, temp_mem, ret)){
 			printk(KERN_WARNING "%s : copy_to_user failed\n", log_prefix);
 
 			return -EFAULT;
@@ -140,9 +154,9 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 	/* 中間メモリを解放 */
 	kfree(temp_mem);
 
-	*offset += objs_to_byte(clist_ctl, actually_pulled);
+	*offset += ret;
 
-	return objs_to_byte(clist_ctl, actually_pulled);
+	return ret;
 }
 
 /* ioctl(2) ※file_operations->unlocked_ioctl対応 */
