@@ -162,7 +162,7 @@ void recieve_end(struct clist_controler *clist_ctl)
 #endif
 
 		if(pick_len != remain_len || pick_len == 0){
-			pick_len = clist_pull_end(sobj, remain_len, clist_ctl);
+			pick_len = clist_pull_end(sobj, clist_ctl);
 #ifdef DEBUG
 			puts("\tclist_pull_end() done");
 			for(i = 0; i < pick_len; i++){

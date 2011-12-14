@@ -17,7 +17,6 @@ static char *log_prefix = "module[clist_benchmark]";
 
 static dev_t dev_id;  /* デバイス番号 */
 static struct cdev c_dev; /* キャラクタデバイス用構造体 */
-static int end_flag = 0;
 
 #define IO_MAGIC				'k'
 #define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)	/* ユーザアプリ終了時 */
@@ -71,13 +70,12 @@ static int clbench_open(struct inode *inode, struct file *filp)
 /* close(2) */
 static int clbench_release(struct inode* inode, struct file* filp)
 {
-	if(sigspec.sr_status == SIGRESET_ACCEPTED){
-		/* 循環リストを解放 */
-		clist_free(clist_ctl);
-	}
-	else{
+	if(sigspec.sr_status != SIGRESET_ACCEPTED){
 		printk(KERN_INFO "%s : Warning sr_status isn't SIGRESET_ACCEPTED\n", log_prefix);
 	}
+
+	/* 循環リストを解放 */
+	clist_free(clist_ctl);
 
 	printk(KERN_INFO "%s : clbench release\n", log_prefix);
 	return 0;
@@ -89,72 +87,40 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 	int actually_pulled, objects, ret;
 	void *temp_mem;
 
-	objects = count / sizeof(struct lb_object);
+	if(sigspec.sr_status != SIGRESET_ACCEPTED){
 
-	/* 中間メモリを確保 */
-	temp_mem = (void *)kzalloc(count, GFP_KERNEL);
+		objects = count / sizeof(struct lb_object);
 
-	if(sigspec.sr_status == SIG_READY){
+		/* 中間メモリを確保 */
+		temp_mem = (void *)kzalloc(count, GFP_KERNEL);
 
 		actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
 
-		/* pullしたバイト数を計算 */
-		ret = objs_to_byte(clist_ctl, actually_pulled);
-
-		/* このコードはタイマルーチン経由 */
-		printk(KERN_INFO "%s : count = %d, actually_pulled:%d, wlen:%d\n", log_prefix, (int)count, actually_pulled, clist_wlen(clist_ctl));
-
-		/* ユーザ空間にコピー */
-		if(copy_to_user(buf, temp_mem, ret)){
-			printk(KERN_WARNING "%s : copy_to_user failed\n", log_prefix);
-			return -EFAULT;
-		}
-
-	}
-	else if(sigspec.sr_status == SIGRESET_REQUEST){
-
-		if(end_flag){
-			actually_pulled = clist_pull_end(temp_mem, objects, clist_ctl);
-		}
-		else{
-			actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
-		}
-
-		if(actually_pulled < 0){	/* エラー処理 */
-			printk(KERN_INFO "%s : Error clist_pull failed\n", log_prefix);
-			return actually_pulled;
-		}
-
-		/* pullしたバイト数を計算 */
-		ret = objs_to_byte(clist_ctl, actually_pulled);
-
-		/* ユーザ空間にコピー */
-		if(copy_to_user(buf, temp_mem, ret)){
-			printk(KERN_WARNING "%s : copy_to_user failed\n", log_prefix);
-
-			return -EFAULT;
-		}
-
-		if(end_flag){
+		if(actually_pulled == 0 && CLIST_IS_COLD(clist_ctl)){
+			/* もし1つも読めなくて、かつ循環リストがCOLDなら書き込み中のノードから読む */
+			actually_pulled = clist_pull_end(temp_mem, clist_ctl);
 			sigspec.sr_status = SIGRESET_ACCEPTED;
 		}
 
-		/* 条件が揃えば次の呼び出しはclist_pull_end() */
-		if(end_flag == 0 && (count != actually_pulled || actually_pulled == 0)){
-			printk(KERN_INFO "%s : now, call clist_pusll_end(), next\n", log_prefix);
-			end_flag = 1;
+		/* pullしたバイト数を計算 */
+		ret = objs_to_byte(clist_ctl, actually_pulled);
+
+		/* ユーザ空間にコピー */
+		if(copy_to_user(buf, temp_mem, ret)){
+			printk(KERN_WARNING "%s : copy_to_user failed\n", log_prefix);
+			return -EFAULT;
 		}
 
+		printk(KERN_INFO "%s : count = %d, actually_pulled:%d, wlen:%d\n", log_prefix, (int)count, actually_pulled, clist_wlen(clist_ctl));
+
+		/* 中間メモリを解放 */
+		kfree(temp_mem);
+
+		*offset += ret;
 	}
 	else{
-		printk(KERN_WARNING "%s : invalid sigspec.sr_status\n", log_prefix);
-		return 0;	/* error */
+		ret = 0;
 	}
-
-	/* 中間メモリを解放 */
-	kfree(temp_mem);
-
-	*offset += ret;
 
 	return ret;
 }
@@ -170,11 +136,18 @@ static long clbench_ioctl(struct file *flip, unsigned int cmd, unsigned long arg
 		case IOC_USEREND_NOTIFY:	/* USEREND_NOTIFYがioctl(2)される前にユーザ側でsleep(PERIOD)してくれている */
 			/* signal送信を止める処理 */
 			if(sigspec.sr_status == SIG_READY){
+				int nr_objs, nr_first, nr_burst;
+
 				sigspec.sr_status = SIGRESET_REQUEST;
 				printk(KERN_INFO "%s : IOC_USEREND_NOTIFY recieved\n", log_prefix);
 
 				/* ユーザに通知してユーザにread(2)してもらう */
-				put_user(clist_set_cold(clist_ctl, NULL, NULL), (unsigned int __user *)arg);
+
+				nr_objs = clist_set_cold(clist_ctl, &nr_first, &nr_burst);
+
+				nr_objs += nr_first + (nr_burst * clist_ctl->nr_composed);
+
+				put_user(nr_objs, (unsigned int __user *)arg);
 				retval = 1;
 			}
 			else{

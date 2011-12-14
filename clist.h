@@ -1,9 +1,14 @@
 #define CLIST_STATE_HOT	1
 #define CLIST_STATE_COLD	0
 
+#define CLIST_IS_HOT(ctl)	(ctl->state)
+#define CLIST_IS_COLD(ctl)	(ctl->state ? 0 : 1)
+
+
 #define clist_wlen(ctl)	ctl->pull_wait_length
 #define objs_to_byte(ctl, n)	(ctl->object_size * n)
 #define byte_to_objs(ctl, byte)	(byte / ctl->object_size)
+
 
 /* 循環リストのノード */
 struct clist_node{
@@ -49,4 +54,4 @@ int clist_pull_order(void *data, int n, struct clist_controler *clist_ctl);
 
 /* 最後にデータを読みきる関数 */
 int clist_set_cold(struct clist_controler *clist_ctl, int *n_first, int *n_burst);
-int clist_pull_end(void *data, int n, struct clist_controler *clist_ctl);
+int clist_pull_end(void *data, struct clist_controler *clist_ctl);

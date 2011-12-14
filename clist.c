@@ -506,19 +506,19 @@ int clist_pull_order(void *data, int n, struct clist_controler *clist_ctl)
 
 	※clist_set_cold()の後に呼び出されないといけない
 */
-int clist_pull_end(void *data, int n, struct clist_controler *clist_ctl)
+int clist_pull_end(void *data, struct clist_controler *clist_ctl)
 {
 	int len;
 
-	len = n * clist_ctl->object_size;
+	len = clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data;
 
-	if(clist_ctl->state == CLIST_STATE_HOT){
+	if(CLIST_IS_HOT(clist_ctl)){
 		return -ECANCELED;
 	}
 
 	memcpy(data, clist_ctl->w_curr->data, len);
 	clist_ctl->w_curr->curr_ptr -= len;
 
-	return n;	
+	return byte_to_objs(clist_ctl, len);
 }
 

@@ -503,25 +503,26 @@ EXPORT_SYMBOL(clist_pull_order);
 /*
 	循環リストからw_currのノードからデータを読む関数
 	@data データを格納するアドレス
-	@n 読み込むオブジェクトの個数
 	return 成功：dataに格納したオブジェクトの個数 失敗：マイナスのエラーコード
 
 	※clist_set_cold()の後に呼び出されないといけない
+	※この関数は1度だけ呼ぶ
+	※dataは書き込み中ノードにあるデータサイズ分のメモリ領域が確保されている必要がある
 */
-int clist_pull_end(void *data, int n, struct clist_controler *clist_ctl)
+int clist_pull_end(void *data, struct clist_controler *clist_ctl)
 {
 	int len;
 
-	len = n * clist_ctl->object_size;
+	len = clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data;
 
-	if(clist_ctl->state == CLIST_STATE_HOT){
+	if(CLIST_IS_HOT(clist_ctl)){
 		return -ECANCELED;
 	}
 
 	memcpy(data, clist_ctl->w_curr->data, len);
 	clist_ctl->w_curr->curr_ptr -= len;
 
-	return n;	
+	return byte_to_objs(clist_ctl, len);
 }
 EXPORT_SYMBOL(clist_pull_end);
 
