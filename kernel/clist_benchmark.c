@@ -87,7 +87,7 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 	int actually_pulled, objects, ret;
 	void *temp_mem;
 
-	if(sigspec.sr_status != SIGRESET_ACCEPTED){
+	if(sigspec.sr_status == SIG_READY || sigspec.sr_status == SIGRESET_REQUEST){
 
 		objects = count / sizeof(struct lb_object);
 
@@ -96,7 +96,9 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 
 		actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
 
-		if(actually_pulled == 0 && CLIST_IS_COLD(clist_ctl)){
+		if(actually_pulled == 0 && CLIST_IS_COLD(clist_ctl)){	/* ここは1回しか通らないはず */
+			printk(KERN_INFO "%s : now, clist_pull_end() is calling\n", log_prefix);
+
 			/* もし1つも読めなくて、かつ循環リストがCOLDなら書き込み中のノードから読む */
 			actually_pulled = clist_pull_end(temp_mem, clist_ctl);
 			sigspec.sr_status = SIGRESET_ACCEPTED;
@@ -118,8 +120,11 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 
 		*offset += ret;
 	}
-	else{
+	else if(sigspec.sr_status == SIGRESET_ACCEPTED){
 		ret = 0;
+	}
+	else{
+		ret = -ECANCELED;
 	}
 
 	return ret;

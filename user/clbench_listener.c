@@ -110,13 +110,14 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	putchar('\n');
 
 	/* ベンチマーク結果を出力 */
 	puts("------------ベンチマーク結果---------------");
+	printf("入出力オブジェクト総数：%d\n", count);
 	printf("読み込み粒度（オブジェクト数）：%d\n", READ_NR_OBJECT);
 	printf("clistのノード数：%d\n", 8);
 	printf("clistのノードに含まれるオブジェクト数：%d\n", 100);
-	printf("入出力オブジェクト総数：%d\n", count);
 
 	/* リソース解放 */
 	free(handler_buffer);

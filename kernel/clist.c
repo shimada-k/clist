@@ -21,13 +21,18 @@
 */
 static void clist_wmemcpy(const void *src, int n, struct clist_controler *clist_ctl)
 {
+	spin_lock(&clist_ctl->lock);
+
 	memcpy(clist_ctl->w_curr->curr_ptr, src, objs_to_byte(clist_ctl, n));
 	clist_ctl->w_curr->curr_ptr += objs_to_byte(clist_ctl, n);
 
 	if(clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data == clist_ctl->node_len){
 		clist_ctl->w_curr = clist_ctl->w_curr->next_node;		/* ノードが一杯になったので、次のノードにアドレスをつなぐ */
+		smp_wmb();
 		clist_ctl->pull_wait_length++;
 	}
+
+	spin_unlock(&clist_ctl->lock);
 }
 
 /*
@@ -42,6 +47,8 @@ static void clist_rmemcpy(void *dest, int n, struct clist_controler *clist_ctl)
 {
 	void *seek_head;
 
+	spin_lock(&clist_ctl->lock);
+
 	/* curr_ptrとdataから読み出すアドレスを計算する */
 	seek_head = clist_ctl->r_curr->data + clist_ctl->node_len - (clist_ctl->r_curr->curr_ptr - clist_ctl->r_curr->data);
 
@@ -50,8 +57,11 @@ static void clist_rmemcpy(void *dest, int n, struct clist_controler *clist_ctl)
 
 	if(clist_ctl->r_curr->curr_ptr - clist_ctl->r_curr->data == 0){
 		clist_ctl->r_curr = clist_ctl->r_curr->next_node;		/* w_currにノード1つ分だけ近づける */
+		smp_wmb();
 		clist_ctl->pull_wait_length--;
 	}
+
+	spin_unlock(&clist_ctl->lock);
 }
 
 /***********************************
@@ -267,6 +277,9 @@ struct clist_controler *clist_alloc(int nr_node, int nr_composed, int object_siz
 
 	/* 入出力可能フラグ */
 	clist_ctl->state = CLIST_STATE_HOT;
+
+	/* spinlock初期化 */
+	spin_lock_init(&clist_ctl->lock);
 
 	return clist_ctl;
 }
