@@ -297,11 +297,15 @@ void clist_free(struct clist_controler *clist_ctl)
 	循環リストに1オブジェクトだけデータを追加する関数
 	@data データが入っているアドレス
 	@clist_ctl 管理用構造体のアドレス
-	return 実際に書き込んだオブジェクトの個数
+	return 成功：1　失敗：マイナスのエラーコード、もしくは0
 */
 int clist_push_one(const void *data, struct clist_controler *clist_ctl)
 {
 	int write_scope;
+
+	if(CLIST_IS_COLD(clist_ctl)){
+		return -EAGAIN;	/* push禁止だったらエラー */
+	}
 
 	write_scope = clist_pushable_objects(clist_ctl, NULL, NULL);
 
@@ -310,6 +314,7 @@ int clist_push_one(const void *data, struct clist_controler *clist_ctl)
 		return 1;
 	}
 	else{
+		clist_ctl->state = CLIST_STATE_COLD;	/* push禁止に設定 */
 		return 0;
 	}
 }
@@ -318,7 +323,7 @@ int clist_push_one(const void *data, struct clist_controler *clist_ctl)
 	循環リストに1オブジェクトだけデータを読み取る関数
 	@data データを格納するアドレス
 	@clist_ctl 管理用構造体のアドレス
-	return 実際に読み込んだバイト数
+	return 成功：1　失敗：マイナスのエラーコード、もしくは0
 */
 int clist_pull_one(void *data, struct clist_controler *clist_ctl)
 {
@@ -328,6 +333,8 @@ int clist_pull_one(void *data, struct clist_controler *clist_ctl)
 
 	if(read_scope){
 		clist_rmemcpy(data, 1, clist_ctl);
+		clist_ctl->state = CLIST_STATE_HOT;	/* push許可に設定 */
+
 		return 1;
 	}
 	else{

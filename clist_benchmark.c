@@ -55,9 +55,16 @@ void *send_worker(void *p)
 			count++;
 		}
 
-		//for(i = 0; i < SEND_GRAIN_SIZE; i++){
-		//	ret += clist_push_one((void *)&sobj[i], clist_ctl);
-		//}
+#if 0
+		for(i = 0; i < SEND_GRAIN_SIZE; i++){
+			if(clist_push_one((void *)&sobj[i], clist_ctl) < 0){
+				spileed
+			}
+			else{
+				ret++;
+			}
+		}
+#endif
 		ret = clist_push_order((void *)sobj, SEND_GRAIN_SIZE, clist_ctl);
 
 		if(ret < 0){
@@ -66,6 +73,7 @@ void *send_worker(void *p)
 			spilled++;
 
 			sleep(15);
+			ret = clist_push_order((void *)sobj, SEND_GRAIN_SIZE, clist_ctl);	/* リトライ */
 		}
 		else if(ret != SEND_GRAIN_SIZE){
 			struct sample_object *s;

@@ -267,6 +267,7 @@ static void clbench_flush(unsigned long __data)
 */
 void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
 {
+	int ret;
 	struct lb_object lb;
 
 	if(sigspec.sr_status != SIG_READY){	/* シグナルを送信できる状態かどうか */
@@ -277,6 +278,8 @@ void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
 	lb.seconds = get_seconds();
 	lb.src_cpu = src_cpu;
 	lb.dst_cpu = this_cpu;
+
+	/* この関数はフック先でしか実行されていないので、エラー処理は行っていない */
 
 	clist_push_one((void *)&lb, clist_ctl);
 }
