@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string.h>	/* strerror() */
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>	/* rand(), srand() */
@@ -35,7 +35,7 @@ unsigned int count, spilled;
 void *send_worker(void *p)
 {
 	int i;
-	size_t ret = 0;
+	int ret = 0;
 	struct clist_controler *clist_ctl;
 	struct sample_object sobj[SEND_GRAIN_SIZE];
 
@@ -60,7 +60,14 @@ void *send_worker(void *p)
 		//}
 		ret = clist_push_order((void *)sobj, SEND_GRAIN_SIZE, clist_ctl);
 
-		if(ret != SEND_GRAIN_SIZE){	/* 失敗したのでリトライ */
+		if(ret < 0){
+			/* clist側からエラーが帰ってきている */
+			printf("%s\n", strerror(-ret));
+			spilled++;
+
+			sleep(15);
+		}
+		else if(ret != SEND_GRAIN_SIZE){
 			struct sample_object *s;
 
 			/* clist_push()に失敗したデータを表示 */
@@ -75,8 +82,6 @@ void *send_worker(void *p)
 
 			sleep(15);
 			clist_push_order((void *)&sobj[ret], (SEND_GRAIN_SIZE - ret), clist_ctl);
-
-			spilled++;
 		}
 		ret = 0;
 	}
@@ -116,11 +121,11 @@ void *recieve_worker(void *p)
 
 			int pick_len = 0;
 
-			//pick_len = clist_pull_order((void *)sobj, RECV_GRAIN_SIZE, clist_ctl);
+			pick_len = clist_pull_order((void *)sobj, RECV_GRAIN_SIZE, clist_ctl);
 
-			for(i = 0; i < RECV_GRAIN_SIZE; i++){
-				pick_len += clist_pull_one((void *)&sobj[i], clist_ctl);
-			}
+			//for(i = 0; i < RECV_GRAIN_SIZE; i++){
+			//	pick_len += clist_pull_one((void *)&sobj[i], clist_ctl);
+			//}
 
 #ifdef DEBUG
 			printf("recieve_data_worker pick_len:%d\n",pick_len);

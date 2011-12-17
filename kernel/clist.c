@@ -198,7 +198,7 @@ int clist_set_cold(struct clist_controler *clist_ctl, int *n_first, int *n_burst
 	clist_pullable_objects(clist_ctl, &first, &burst);
 
 #ifdef DEBUG
-	printk(KERN_INFO "clist_current_len pull_wait_length:%d first:%d n_burst:%d\n", clist_ctl->pull_wait_length, first, burst);
+	printk(KERN_INFO "clist_set_cold pull_wait_length:%d first:%d n_burst:%d\n", clist_ctl->pull_wait_length, first, burst);
 #endif
 
 	/* NULLでなかったら引数のアドレスに代入 */
@@ -351,10 +351,10 @@ EXPORT_SYMBOL(clist_pull_one);
 /*
 	循環リストにデータを追加する関数
 	@data データが入っているアドレス
-	@len データの長さ（バイト）
+	@n オブジェクトの個数
 	return 成功：追加したオブジェクトの個数　失敗：マイナスのエラーコード
 
-	※この関数がlen以下の値を返した時は循環リストが一周しているのでユーザ側で再送するか、データ量を再検討する必要がある
+	※この関数がn以下の値を返した時は循環リストが一周しているのでユーザ側で再送するか、データ量を再検討する必要がある
 */
 int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 {
@@ -364,20 +364,23 @@ int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 
 	write_scope = clist_pushable_objects(clist_ctl, &n_first, &n_burst);
 
-	if(n >= write_scope){
+	if(CLIST_IS_COLD(clist_ctl)){
+		ret = -EAGAIN;	/* push禁止だったらエラー */
+	}
+	else if(n >= write_scope){
 #ifdef DEBUG
 		printk(KERN_INFO "clist_push() 1st-if, n:%d, write_scope:%d, n_first:%d, n_burst:%d\n", n, write_scope, n_first, n_burst);
 #endif
-
 		/* 現在のノードに書き込めるだけ書き込む */
 		if(n_first > 0){
 			clist_wmemcpy(data, n_first, clist_ctl);
 			ret += n_first;
 		}
 
-		if(clist_ctl->w_curr == clist_ctl->r_curr){
+		if(clist_ctl->w_curr == clist_ctl->r_curr){	/* w_currがr_currに追いついた */
 #ifdef DEBUG
-				printk(KERN_INFO "clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
+			printk(KERN_INFO "clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
+			clist_ctl->state = CLIST_STATE_COLD;	/* push禁止にする */
 #endif	
 			return n_first;
 		}
@@ -403,9 +406,10 @@ int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 				ret += n_first;
 			}
 
-			if(clist_ctl->w_curr == clist_ctl->r_curr){
+			if(clist_ctl->w_curr == clist_ctl->r_curr){	/* w_currがr_currに追いついた */
 #ifdef DEBUG
 				printk(KERN_INFO "clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
+				clist_ctl->state = CLIST_STATE_COLD;	/* push禁止にする */
 #endif	
 				return n_first;
 			}
@@ -442,7 +446,7 @@ EXPORT_SYMBOL(clist_push_order);
 /*
 	循環リストからlenだけデータを読む関数
 	@data データを格納するアドレス
-	@len データの長さ
+	@n オブジェクトの個数
 	return dataに格納したデータサイズ
 
 	※書き込みが完了したノードしか読まない仕様
@@ -506,6 +510,10 @@ int clist_pull_order(void *data, int n, struct clist_controler *clist_ctl)
 			clist_rmemcpy(data, n, clist_ctl);
 			ret += n;
 		}
+	}
+
+	if(CLIST_IS_COLD(clist_ctl)){
+		clist_ctl->state = CLIST_STATE_HOT;	/* push許可に設定 */
 	}
 
 	return ret;

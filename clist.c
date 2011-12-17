@@ -193,7 +193,7 @@ int clist_set_cold(struct clist_controler *clist_ctl, int *n_first, int *n_burst
 	clist_pullable_objects(clist_ctl, &first, &burst);
 
 #ifdef DEBUG
-	printf("clist_current_len pull_wait_length:%d first:%d n_burst:%d\n", clist_ctl->pull_wait_length, first, burst);
+	printf("clist_set_cold pull_wait_length:%d first:%d n_burst:%d\n", clist_ctl->pull_wait_length, first, burst);
 #endif
 
 	/* NULLでなかったら引数のアドレスに代入 */
@@ -351,7 +351,10 @@ int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 
 	write_scope = clist_pushable_objects(clist_ctl, &n_first, &n_burst);
 
-	if(n >= write_scope){
+	if(CLIST_IS_COLD(clist_ctl)){
+		ret = -EAGAIN;	/* push禁止だったらエラー */
+	}
+	else if(n >= write_scope){
 #ifdef DEBUG
 		printf("clist_push() 1st-if, n:%d, write_scope:%d, n_first:%d, n_burst:%d\n", n, write_scope, n_first, n_burst);
 #endif
@@ -364,8 +367,10 @@ int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 
 		if(clist_ctl->w_curr == clist_ctl->r_curr){
 #ifdef DEBUG
-				printf("clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
-#endif	
+			printf("clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
+#endif
+			clist_ctl->state = CLIST_STATE_COLD;	/* push禁止に設定する */
+
 			return n_first;
 		}
 
@@ -393,7 +398,9 @@ int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
 			if(clist_ctl->w_curr == clist_ctl->r_curr){
 #ifdef DEBUG
 				printf("clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
-#endif	
+#endif
+				clist_ctl->state = CLIST_STATE_COLD;	/* push禁止に設定する */
+
 				return n_first;
 			}
 
@@ -440,6 +447,7 @@ int clist_pull_order(void *data, int n, struct clist_controler *clist_ctl)
 
 	/* 読める最大サイズを計算する */
 	read_scope = clist_pullable_objects(clist_ctl, &n_first, &n_burst);
+
 
 	if(n >= read_scope){	/* 読める上限（read_scope）だけ読む */
 
@@ -492,6 +500,10 @@ int clist_pull_order(void *data, int n, struct clist_controler *clist_ctl)
 			clist_rmemcpy(data, n, clist_ctl);
 			ret += n;
 		}
+	}
+
+	if(CLIST_IS_COLD(clist_ctl)){
+		clist_ctl->state = CLIST_STATE_HOT;	/* push許可に設定する */
 	}
 
 	return ret;

@@ -1,5 +1,6 @@
-#define CLIST_STATE_HOT	1
 #define CLIST_STATE_COLD	0
+#define CLIST_STATE_HOT	1
+
 
 #define CLIST_IS_HOT(ctl)	(ctl->state)
 #define CLIST_IS_COLD(ctl)	(ctl->state ? 0 : 1)
