@@ -19,7 +19,7 @@
 
 	データ長の検査はこの関数内では行っていない この関数内はクリティカルセクション
 */
-static void clist_wmemcpy(const void *src, int n, struct clist_controler *clist_ctl)
+static void clist_wmemcpy(const void *src, int n, struct clist_controller *clist_ctl)
 {
 	spin_lock(&clist_ctl->lock);
 
@@ -43,7 +43,7 @@ static void clist_wmemcpy(const void *src, int n, struct clist_controler *clist_
 
 	データ長の検査はこの関数内では行っていない この関数内はクリティカルセクション
 */
-static void clist_rmemcpy(void *dest, int n, struct clist_controler *clist_ctl)
+static void clist_rmemcpy(void *dest, int n, struct clist_controller *clist_ctl)
 {
 	void *seek_head;
 
@@ -79,7 +79,7 @@ static void clist_rmemcpy(void *dest, int n, struct clist_controler *clist_ctl)
 
 	※現在書き込み中のノードはread対象にはならない
 */
-int clist_pullable_objects(const struct clist_controler *clist_ctl, int *n_first, int *n_burst)
+int clist_pullable_objects(const struct clist_controller *clist_ctl, int *n_first, int *n_burst)
 {
 	int first, burst;
 
@@ -132,7 +132,7 @@ EXPORT_SYMBOL(clist_pullable_objects);
 
 	※現在読み込み中のノードはwrite対象にはならない
 */
-int clist_pushable_objects(const struct clist_controler *clist_ctl, int *n_first, int *n_burst)
+int clist_pushable_objects(const struct clist_controller *clist_ctl, int *n_first, int *n_burst)
 {
 	int curr_len, flen, burst;
 
@@ -189,7 +189,7 @@ EXPORT_SYMBOL(clist_pushable_objects);
 
 	※read中、write中すべてのデータを計算する。この関数を呼び出すとclistは入出力禁止モードに突入する clist_kfree()の直前に呼び出すこと
 */
-int clist_set_cold(struct clist_controler *clist_ctl, int *n_first, int *n_burst)
+int clist_set_cold(struct clist_controller *clist_ctl, int *n_first, int *n_burst)
 {
 	int first, burst;
 
@@ -219,14 +219,14 @@ EXPORT_SYMBOL(clist_set_cold);
 	@nr_node 循環リストの段数
 	@nr_composed 循環リスト１段に含まれるオブジェクトの数
 
-	return 成功:clist_controlerのアドレス 失敗:NULL
+	return 成功:clist_controllerのアドレス 失敗:NULL
 */
-struct clist_controler *clist_alloc(int nr_node, int nr_composed, int object_size)
+struct clist_controller *clist_alloc(int nr_node, int nr_composed, int object_size)
 {
 	int i;
-	struct clist_controler *clist_ctl;
+	struct clist_controller *clist_ctl;
 
-	clist_ctl = (struct clist_controler *)kzalloc(sizeof(struct clist_controler), GFP_KERNEL);
+	clist_ctl = (struct clist_controller *)kzalloc(sizeof(struct clist_controller), GFP_KERNEL);
 
 	if(clist_ctl == NULL){	/* エラー */
 		return NULL;
@@ -287,9 +287,9 @@ EXPORT_SYMBOL(clist_alloc);
 
 /*
 	メモリを解放する関数
-	@clist_ctl ユーザがallocしたclist_controler構造体のアドレス
+	@clist_ctl ユーザがallocしたclist_controller構造体のアドレス
 */
-void clist_free(struct clist_controler *clist_ctl)
+void clist_free(struct clist_controller *clist_ctl)
 {
 	int i;
 
@@ -310,7 +310,7 @@ EXPORT_SYMBOL(clist_free);
 	@clist_ctl 管理用構造体のアドレス
 	return 成功：1　失敗：マイナスのエラーコード、もしくは0
 */
-int clist_push_one(const void *data, struct clist_controler *clist_ctl)
+int clist_push_one(const void *data, struct clist_controller *clist_ctl)
 {
 	int write_scope;
 
@@ -337,7 +337,7 @@ EXPORT_SYMBOL(clist_push_one);
 	@clist_ctl 管理用構造体のアドレス
 	return 成功：1　失敗：マイナスのエラーコード、もしくは0
 */
-int clist_pull_one(void *data, struct clist_controler *clist_ctl)
+int clist_pull_one(void *data, struct clist_controller *clist_ctl)
 {
 	int read_scope;
 
@@ -363,7 +363,7 @@ EXPORT_SYMBOL(clist_pull_one);
 
 	※この関数がn以下の値を返した時は循環リストが一周しているのでユーザ側で再送するか、データ量を再検討する必要がある
 */
-int clist_push_order(const void *data, int n, struct clist_controler *clist_ctl)
+int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl)
 {
 	int i;
 	int write_scope, n_first = 0, n_burst = 0;
@@ -458,7 +458,7 @@ EXPORT_SYMBOL(clist_push_order);
 
 	※書き込みが完了したノードしか読まない仕様
 */
-int clist_pull_order(void *data, int n, struct clist_controler *clist_ctl)
+int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 {
 	int i, n_first = 0, n_burst = 0;
 	int ret = 0, read_scope;
@@ -537,7 +537,7 @@ EXPORT_SYMBOL(clist_pull_order);
 	※この関数は1度だけ呼ぶ
 	※dataは書き込み中ノードにあるデータサイズ分のメモリ領域が確保されている必要がある
 */
-int clist_pull_end(void *data, struct clist_controler *clist_ctl)
+int clist_pull_end(void *data, struct clist_controller *clist_ctl)
 {
 	int len;
 

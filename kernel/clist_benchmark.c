@@ -52,7 +52,7 @@ struct signal_spec{	/* ユーザ空間とシグナルで通信するための管
 
 static int nr_node, node_nr_composed;
 
-static struct clist_controler *clist_ctl;
+static struct clist_controller *clist_ctl;
 static struct signal_spec sigspec;
 static struct timer_list flush_timer;
 

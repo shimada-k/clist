@@ -36,10 +36,10 @@ void *send_worker(void *p)
 {
 	int i;
 	int ret = 0;
-	struct clist_controler *clist_ctl;
+	struct clist_controller *clist_ctl;
 	struct sample_object sobj[SEND_GRAIN_SIZE];
 
-	clist_ctl = (struct clist_controler *)p;
+	clist_ctl = (struct clist_controller *)p;
 
 	while(1){
 		if(death_flag == 1){
@@ -106,13 +106,13 @@ void *recieve_worker(void *p)
 {
 	int sleep_time, i;
 	struct sample_object *sobj;
-	struct clist_controler *clist_ctl;
+	struct clist_controller *clist_ctl;
 
 	sobj = calloc(RECV_GRAIN_SIZE, sizeof(struct sample_object));
 
 	srand(time(NULL));
 
-	clist_ctl = (struct clist_controler *)p;
+	clist_ctl = (struct clist_controller *)p;
 
 	while(1){
 		if(death_flag == 2){
@@ -154,7 +154,7 @@ void *recieve_worker(void *p)
 
 }
 
-void recieve_end(struct clist_controler *clist_ctl)
+void recieve_end(struct clist_controller *clist_ctl)
 {
 	int remain_len, pick_len, i;
 	struct sample_object *sobj;
@@ -195,7 +195,7 @@ void recieve_end(struct clist_controler *clist_ctl)
 int main(int argc, char *argv[])
 {
 	int signo;
-	struct clist_controler *clist_ctl;
+	struct clist_controller *clist_ctl;
 	pthread_t send, recv;
 	sigset_t ss;
 
