@@ -383,7 +383,7 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 
 		/* ノード単位で書き込む */
 		for(i = 0; i < n_burst; i++){
-			clist_wmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+			clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 			ret += clist_ctl->nr_composed;
 		}
 	}
@@ -413,13 +413,13 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 
 			/* ノード単位で書き込む */
 			for(i = 0; i < n_burst; i++){
-				clist_wmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+				clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 				ret += clist_ctl->nr_composed;
 			}
 
 			/* 最後に残った半端なものを書き込む */
 			if(n - ret > 0){
-				clist_wmemcpy(data + ret, n - ret, clist_ctl);
+				clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), n - ret, clist_ctl);
 				ret += n - ret;
 			}
 		}
@@ -427,7 +427,7 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 			/* lenだけ書き込む */
 			printf("ret:%d, n:%d\n", ret, n);
 
-			clist_wmemcpy(data + ret, n, clist_ctl);
+			clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), n, clist_ctl);
 			ret += n;
 		}
 	}
@@ -467,7 +467,7 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 		if(n_burst){
 
 			for(i = 0; i < n_burst; i++){
-				clist_rmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 				ret += clist_ctl->nr_composed;
 			}
 		}
@@ -490,7 +490,6 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 
 			/* ノード単位で読む */
 			for(i = 0; i < n_burst; i++){
-				//clist_rmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
 				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 				ret += clist_ctl->nr_composed;
 			}
@@ -500,7 +499,6 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 
 			/* 半端な長さのものを読む */
 			if(n - ret > 0){
-				//clist_rmemcpy(data + ret, n - ret, clist_ctl);
 				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), n - ret, clist_ctl);
 				ret += n - ret;
 			}

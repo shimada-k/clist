@@ -8,7 +8,7 @@
 #include "clist.h"
 
 #define SEND_FREQUENCY		2	/* send_workerが送る時間（秒） */
-#define SEND_GRAIN_SIZE		6	/* send_workerが送るデータ単位量（オブジェクトの数） */
+#define SEND_GRAIN_SIZE		5	/* send_workerが送るデータ単位量（オブジェクトの数） */
 
 #define RECV_FREQUENCY_STATIC	2	/* recieve_workerが受信する静的時間（秒） */
 #define RECV_FREQUENCY_DYNAMIC	4	/* recieve_workerが受信する動的時間（秒） */
