@@ -7,15 +7,15 @@
 #include <time.h>	/* rand(), srand() */
 #include "clist.h"
 
-#define SEND_FREQUENCY		1	/* send_workerが送る時間（秒） */
+#define SEND_FREQUENCY		2	/* send_workerが送る時間（秒） */
 #define SEND_GRAIN_SIZE		6	/* send_workerが送るデータ単位量（オブジェクトの数） */
 
-#define RECV_FREQUENCY_STATIC	8	/* recieve_workerが受信する静的時間（秒） */
-#define RECV_FREQUENCY_DYNAMIC	5	/* recieve_workerが受信する動的時間（秒） */
+#define RECV_FREQUENCY_STATIC	2	/* recieve_workerが受信する静的時間（秒） */
+#define RECV_FREQUENCY_DYNAMIC	4	/* recieve_workerが受信する動的時間（秒） */
 
 #define RECV_FREQUENCY()		(rand() % RECV_FREQUENCY_DYNAMIC) + RECV_FREQUENCY_STATIC;
 
-#define RECV_GRAIN_SIZE		6	/* recieve_workerが受信するデータ単位量（オブジェクトの数） */
+#define RECV_GRAIN_SIZE		5	/* recieve_workerが受信するデータ単位量（オブジェクトの数） */
 
 static int death_flag = 0;
 
@@ -125,7 +125,7 @@ void *recieve_worker(void *p)
 #endif
 		sleep(sleep_time);
 
-		while(clist_wlen(clist_ctl) > 0){
+		if(clist_wlen(clist_ctl) > 0){
 
 			int pick_len = 0;
 
@@ -156,36 +156,50 @@ void *recieve_worker(void *p)
 
 void recieve_end(struct clist_controller *clist_ctl)
 {
-	int remain_len, pick_len, i;
+	int wcurr_len, pick_len, i, grain;
 	struct sample_object *sobj;
 
-	remain_len = clist_set_cold(clist_ctl, NULL, NULL);
-
-	sobj = calloc(remain_len, sizeof(struct sample_object));
-
-	while(1){
-		pick_len = clist_pull_order((void *)sobj, remain_len, clist_ctl);
+	wcurr_len = clist_set_end(clist_ctl, NULL, NULL);
 
 #ifdef DEBUG
-		puts("\tclist_pull done");
-		for(i = 0; i < pick_len; i++){
-			printf("\tsobj[%d].id_no:%llu\n", i, sobj[i].id_no);
-		}
-		puts("\t*****");
+	printf("recieve_end() wcurr_len:%d\n", wcurr_len);
 #endif
 
-		if(pick_len != remain_len || pick_len == 0){
-			pick_len = clist_pull_end(sobj, clist_ctl);
+	/* clist_pull_end()でpull残しがないように大きい方でメモリを確保 */
+	if(wcurr_len >= RECV_GRAIN_SIZE){
+		grain = wcurr_len;
+	}
+	else{
+		grain = RECV_GRAIN_SIZE;
+	}
+
+	sobj = calloc(grain, sizeof(struct sample_object));
+
+	while(1){
+		pick_len = clist_pull_order((void *)sobj, grain, clist_ctl);
+
+		if(pick_len == 0){
+			puts("clist_pull_order() done, Now clist_pull_end()");
+			pick_len = clist_pull_end((void *)sobj, clist_ctl);
 #ifdef DEBUG
-			puts("\tclist_pull_end() done");
 			for(i = 0; i < pick_len; i++){
-				printf("\tsobj[%d].id_no:%llu\n", i, sobj[i].id_no);
+				printf("\t##sobj[%d].id_no:%llu\n", i, sobj[i].id_no);
 			}
 			puts("\t*****");
 #endif
 			break;
 		}
+		else{
+#ifdef DEBUG
+			for(i = 0; i < pick_len; i++){
+				printf("\t#sobj[%d].id_no:%llu\n", i, sobj[i].id_no);
+			}
+			puts("\t*****");
+#endif
+		}
 	}
+
+	free(sobj);
 }
 
 

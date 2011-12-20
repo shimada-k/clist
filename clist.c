@@ -182,13 +182,13 @@ int clist_pushable_objects(const struct clist_controller *clist_ctl, int *n_firs
 	@n_burst ノード丸ごと読む場合、いくつのノードか（任意）
 	return w_currに存在しているオブジェクトの個数
 
-	※read中、write中すべてのデータを計算する。この関数を呼び出すとclistは入出力禁止モードに突入する clist_free()の直前に呼び出すこと
+	※この関数を呼び出すとclistはENDモードに突入する clist_free()の直前に呼び出すこと
 */
-int clist_set_cold(struct clist_controller *clist_ctl, int *n_first, int *n_burst)
+int clist_set_end(struct clist_controller *clist_ctl, int *n_first, int *n_burst)
 {
 	int first, burst;
 
-	clist_ctl->state = CLIST_STATE_COLD;	/* 入出力禁止状態に遷移させる */
+	clist_ctl->state = CLIST_STATE_END;	/* END状態に遷移させる */
 
 	clist_pullable_objects(clist_ctl, &first, &burst);
 
@@ -485,21 +485,23 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 				ret += n_first;
 			}
 #ifdef DEBUG
-			printf("pick_node() loop number:%d\n", (n - n_first) / clist_ctl->node_len);
+			printf("pick_node() loop number:%d\n", n_burst);
 #endif
 
 			/* ノード単位で読む */
 			for(i = 0; i < n_burst; i++){
-				clist_rmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+				//clist_rmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 				ret += clist_ctl->nr_composed;
 			}
 #ifdef DEBUG
-			printf("pick_node() odd number:%d\n", (n - n_first) % clist_ctl->nr_composed);
+			printf("pick_node() odd number:%d\n", n - ret);
 #endif
 
 			/* 半端な長さのものを読む */
 			if(n - ret > 0){
-				clist_rmemcpy(data + ret, n - ret, clist_ctl);
+				//clist_rmemcpy(data + ret, n - ret, clist_ctl);
+				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), n - ret, clist_ctl);
 				ret += n - ret;
 			}
 		}
@@ -523,7 +525,7 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 	@n 読み込むオブジェクトの個数
 	return 成功：dataに格納したオブジェクトの個数 失敗：マイナスのエラーコード
 
-	※clist_set_cold()の後に呼び出されないといけない
+	※clist_set_end()の後に呼び出されないといけない
 */
 int clist_pull_end(void *data, struct clist_controller *clist_ctl)
 {
@@ -531,13 +533,16 @@ int clist_pull_end(void *data, struct clist_controller *clist_ctl)
 
 	len = clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data;
 
-	if(CLIST_IS_HOT(clist_ctl)){
+	if(CLIST_IS_END(clist_ctl)){
+
+		memcpy(data, clist_ctl->w_curr->data, len);
+		clist_ctl->w_curr->curr_ptr -= len;
+
+		return byte_to_objs(clist_ctl, len);
+	}
+	else{
 		return -ECANCELED;
 	}
-
-	memcpy(data, clist_ctl->w_curr->data, len);
-	clist_ctl->w_curr->curr_ptr -= len;
-
-	return byte_to_objs(clist_ctl, len);
 }
+
 

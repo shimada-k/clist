@@ -23,9 +23,9 @@
 */
 
 struct lb_object{	/* やりとりするオブジェクト */
-	pid_t pid;
-	unsigned long seconds;
+	pid_t pid, padding;
 	int src_cpu, dst_cpu;
+	long sec, usec;
 };
 
 int dev, out;	/* ファイルディスクリプタ */
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
 
 	/* デバイスの準備（この順番じゃないとダメ） */
 	ioctl(dev, IOC_SET_SIGNO, SIGUSR1);
-	ioctl(dev, IOC_SET_NR_NODE, 8);
+	ioctl(dev, IOC_SET_NR_NODE, 10);
 	ioctl(dev, IOC_SET_NODE_NR_COMPOSED, 100);
 	ioctl(dev, IOC_SET_PID, (int)getpid());
 
@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
 	puts("------------ベンチマーク結果---------------");
 	printf("入出力オブジェクト総数：%d\n", count);
 	printf("読み込み粒度（オブジェクト数）：%d\n", READ_NR_OBJECT);
-	printf("clistのノード数：%d\n", 8);
+	printf("clistのノード数：%d\n", 10);
 	printf("clistのノードに含まれるオブジェクト数：%d\n", 100);
 
 	/* リソース解放 */

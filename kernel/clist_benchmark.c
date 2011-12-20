@@ -37,10 +37,15 @@ enum signal_status{
 	MAX_STATUS
 };
 
+
+/*
++	注意！	ユーザ空間とやりとりするオブジェクトはパッディングが発生しない構造にすること。
+		メンバのsizeof()の合計がオブジェクトのsizeof()と一致するようにすること
+*/
 struct lb_object{	/* やりとりするオブジェクト */
-	pid_t pid;
-	unsigned long seconds;
+	pid_t pid, padding;
 	int src_cpu, dst_cpu;
+	long sec, usec;
 };
 
 struct signal_spec{	/* ユーザ空間とシグナルで通信するための管理用構造体 */
@@ -123,7 +128,7 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 	else if(sigspec.sr_status == SIGRESET_ACCEPTED){
 		ret = 0;
 	}
-	else{
+	else{	/* エラー */
 		ret = -ECANCELED;
 	}
 
@@ -221,6 +226,7 @@ static long clbench_ioctl(struct file *flip, unsigned int cmd, unsigned long arg
 	}
 
 	if(sigspec.sr_status == SIG_READY){	/* clbench_add_object()を実行できる状態にする */
+		printk(KERN_INFO "%s : signal ready, object-size is %ld byte\n", log_prefix, sizeof(struct lb_object));
 		clist_ctl = clist_alloc(nr_node, node_nr_composed, sizeof(struct lb_object));
 		mod_timer(&flush_timer, jiffies + msecs_to_jiffies(FLUSH_PERIOD));
 	}
@@ -269,13 +275,17 @@ void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
 {
 	int ret;
 	struct lb_object lb;
+	struct timeval t;
 
 	if(sigspec.sr_status != SIG_READY){	/* シグナルを送信できる状態かどうか */
 		return;
 	}
 
+	do_gettimeofday(&t);
+
 	lb.pid = p->pid;
-	lb.seconds = get_seconds();
+	lb.sec = (long)t.tv_sec;
+	lb.usec = (long)t.tv_usec;
 	lb.src_cpu = src_cpu;
 	lb.dst_cpu = this_cpu;
 

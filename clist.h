@@ -1,9 +1,11 @@
 #define CLIST_STATE_COLD	0
 #define CLIST_STATE_HOT	1
+#define CLIST_STATE_END	2
 
 
-#define CLIST_IS_HOT(ctl)	(ctl->state)
-#define CLIST_IS_COLD(ctl)	(ctl->state ? 0 : 1)
+#define CLIST_IS_HOT(ctl)	(ctl->state == CLIST_STATE_HOT ? 1 : 0)
+#define CLIST_IS_COLD(ctl)	(ctl->state == CLIST_STATE_COLD ? 1 : 0)
+#define CLIST_IS_END(ctl)	(ctl->state == CLIST_STATE_END ? 1 : 0)
 
 
 #define clist_wlen(ctl)	ctl->pull_wait_length
@@ -54,5 +56,5 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl);
 
 /* 最後にデータを読みきる関数 */
-int clist_set_cold(struct clist_controller *clist_ctl, int *n_first, int *n_burst);
+int clist_set_end(struct clist_controller *clist_ctl, int *n_first, int *n_burst);
 int clist_pull_end(void *data, struct clist_controller *clist_ctl);
