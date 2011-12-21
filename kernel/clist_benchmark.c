@@ -101,7 +101,7 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 
 		actually_pulled = clist_pull_order(temp_mem, objects, clist_ctl);
 
-		if(actually_pulled == 0 && CLIST_IS_COLD(clist_ctl)){	/* ここは1回しか通らないはず */
+		if(actually_pulled == 0 && CLIST_IS_END(clist_ctl)){	/* ここは1回しか通らないはず */
 			printk(KERN_INFO "%s : now, clist_pull_end() is calling\n", log_prefix);
 
 			/* もし1つも読めなくて、かつ循環リストがCOLDなら書き込み中のノードから読む */
@@ -153,7 +153,7 @@ static long clbench_ioctl(struct file *flip, unsigned int cmd, unsigned long arg
 
 				/* ユーザに通知してユーザにread(2)してもらう */
 
-				nr_objs = clist_set_cold(clist_ctl, &nr_first, &nr_burst);
+				nr_objs = clist_set_end(clist_ctl, &nr_first, &nr_burst);
 
 				nr_objs += nr_first + (nr_burst * clist_ctl->nr_composed);
 
@@ -273,7 +273,6 @@ static void clbench_flush(unsigned long __data)
 */
 void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
 {
-	int ret;
 	struct lb_object lb;
 	struct timeval t;
 

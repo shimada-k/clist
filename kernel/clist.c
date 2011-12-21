@@ -5,6 +5,7 @@
 
 #include <linux/clist.h>
 
+
 /***********************************
 *
 *	ライブラリ内部関数
@@ -187,13 +188,13 @@ EXPORT_SYMBOL(clist_pushable_objects);
 	@n_burst ノード丸ごと読む場合、いくつのノードか（任意）
 	return w_currに存在しているオブジェクトの個数
 
-	※read中、write中すべてのデータを計算する。この関数を呼び出すとclistは入出力禁止モードに突入する clist_kfree()の直前に呼び出すこと
+	※この関数を呼び出すとclistはENDモードに突入する clist_kfree()の直前に呼び出すこと
 */
-int clist_set_cold(struct clist_controller *clist_ctl, int *n_first, int *n_burst)
+int clist_set_end(struct clist_controller *clist_ctl, int *n_first, int *n_burst)
 {
 	int first, burst;
 
-	clist_ctl->state = CLIST_STATE_COLD;	/* 入出力禁止状態に遷移させる */
+	clist_ctl->state = CLIST_STATE_END;	/* END状態に遷移させる */
 
 	clist_pullable_objects(clist_ctl, &first, &burst);
 
@@ -211,7 +212,7 @@ int clist_set_cold(struct clist_controller *clist_ctl, int *n_first, int *n_burs
 
 	return (int)(clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data) / clist_ctl->object_size;
 }
-EXPORT_SYMBOL(clist_set_cold);
+EXPORT_SYMBOL(clist_set_end);
 
 
 /*
@@ -277,9 +278,6 @@ struct clist_controller *clist_alloc(int nr_node, int nr_composed, int object_si
 
 	/* 入出力可能フラグ */
 	clist_ctl->state = CLIST_STATE_HOT;
-
-	/* spinlock初期化 */
-	spin_lock_init(&clist_ctl->lock);
 
 	return clist_ctl;
 }
@@ -361,7 +359,7 @@ EXPORT_SYMBOL(clist_pull_one);
 	@n オブジェクトの個数
 	return 成功：追加したオブジェクトの個数　失敗：マイナスのエラーコード
 
-	※この関数がn以下の値を返した時は循環リストが一周しているのでユーザ側で再送するか、データ量を再検討する必要がある
+	※この関数がlen以下の値を返した時は循環リストが一周しているのでユーザ側で再送するか、データ量を再検討する必要がある
 */
 int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl)
 {
@@ -378,27 +376,29 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 #ifdef DEBUG
 		printk(KERN_INFO "clist_push() 1st-if, n:%d, write_scope:%d, n_first:%d, n_burst:%d\n", n, write_scope, n_first, n_burst);
 #endif
+
 		/* 現在のノードに書き込めるだけ書き込む */
 		if(n_first > 0){
 			clist_wmemcpy(data, n_first, clist_ctl);
 			ret += n_first;
 		}
 
-		if(clist_ctl->w_curr == clist_ctl->r_curr){	/* w_currがr_currに追いついた */
+		if(clist_ctl->w_curr == clist_ctl->r_curr){
 #ifdef DEBUG
 			printk(KERN_INFO "clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
-			clist_ctl->state = CLIST_STATE_COLD;	/* push禁止にする */
-#endif	
+#endif
+			clist_ctl->state = CLIST_STATE_COLD;	/* push禁止に設定する */
+
 			return n_first;
 		}
 
 		/* ノード単位で書き込む */
 		for(i = 0; i < n_burst; i++){
-			clist_wmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+			clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 			ret += clist_ctl->nr_composed;
 		}
 	}
-	else{	/* len < write_scope */
+	else{	/* n < write_scope */
 
 		if(n >= n_first){		/* 現在のノードに書き込めるだけ書き込む */
 
@@ -413,31 +413,32 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 				ret += n_first;
 			}
 
-			if(clist_ctl->w_curr == clist_ctl->r_curr){	/* w_currがr_currに追いついた */
+			if(clist_ctl->w_curr == clist_ctl->r_curr){
 #ifdef DEBUG
 				printk(KERN_INFO "clist_push() w_curr == r_curr. alloc more memory or retry. pull_wait_length:%d\n", clist_ctl->pull_wait_length);
-				clist_ctl->state = CLIST_STATE_COLD;	/* push禁止にする */
-#endif	
+#endif
+				clist_ctl->state = CLIST_STATE_COLD;	/* push禁止に設定する */
+
 				return n_first;
 			}
 
 			/* ノード単位で書き込む */
 			for(i = 0; i < n_burst; i++){
-				clist_wmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+				clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 				ret += clist_ctl->nr_composed;
 			}
 
 			/* 最後に残った半端なものを書き込む */
 			if(n - ret > 0){
-				clist_wmemcpy(data + ret, n - ret, clist_ctl);
+				clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), n - ret, clist_ctl);
 				ret += n - ret;
 			}
 		}
-		else{	/* len < n_first */
-			/* lenだけ書き込む */
+		else{	/* n < n_first */
+			/* nだけ書き込む */
 			printk(KERN_INFO "ret:%d, n:%d\n", ret, n);
 
-			clist_wmemcpy(data + ret, n, clist_ctl);
+			clist_wmemcpy(data, n, clist_ctl);
 			ret += n;
 		}
 	}
@@ -453,7 +454,7 @@ EXPORT_SYMBOL(clist_push_order);
 /*
 	循環リストからlenだけデータを読む関数
 	@data データを格納するアドレス
-	@n オブジェクトの個数
+	@len データの長さ
 	return dataに格納したデータサイズ
 
 	※書き込みが完了したノードしか読まない仕様
@@ -466,6 +467,7 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 	/* 読める最大サイズを計算する */
 	read_scope = clist_pullable_objects(clist_ctl, &n_first, &n_burst);
 
+
 	if(n >= read_scope){	/* 読める上限（read_scope）だけ読む */
 
 		if(n_first){
@@ -477,7 +479,7 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 		if(n_burst){
 
 			for(i = 0; i < n_burst; i++){
-				clist_rmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 				ret += clist_ctl->nr_composed;
 			}
 		}
@@ -495,21 +497,21 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 				ret += n_first;
 			}
 #ifdef DEBUG
-			printk(KERN_INFO "pick_node() loop number:%d\n", (n - n_first) / clist_ctl->node_len);
+			printk(KERN_INFO "pick_node() loop number:%d\n", n_burst);
 #endif
 
 			/* ノード単位で読む */
 			for(i = 0; i < n_burst; i++){
-				clist_rmemcpy(data + ret, clist_ctl->nr_composed, clist_ctl);
+				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), clist_ctl->nr_composed, clist_ctl);
 				ret += clist_ctl->nr_composed;
 			}
 #ifdef DEBUG
-			printk(KERN_INFO "pick_node() odd number:%d\n", (n - n_first) % clist_ctl->nr_composed);
+			printk(KERN_INFO "pick_node() odd number:%d\n", n - ret);
 #endif
 
 			/* 半端な長さのものを読む */
 			if(n - ret > 0){
-				clist_rmemcpy(data + ret, n - ret, clist_ctl);
+				clist_rmemcpy(data + objs_to_byte(clist_ctl, ret), n - ret, clist_ctl);
 				ret += n - ret;
 			}
 		}
@@ -520,7 +522,7 @@ int clist_pull_order(void *data, int n, struct clist_controller *clist_ctl)
 	}
 
 	if(CLIST_IS_COLD(clist_ctl)){
-		clist_ctl->state = CLIST_STATE_HOT;	/* push許可に設定 */
+		clist_ctl->state = CLIST_STATE_HOT;	/* push許可に設定する */
 	}
 
 	return ret;
@@ -531,11 +533,10 @@ EXPORT_SYMBOL(clist_pull_order);
 /*
 	循環リストからw_currのノードからデータを読む関数
 	@data データを格納するアドレス
+	@n 読み込むオブジェクトの個数
 	return 成功：dataに格納したオブジェクトの個数 失敗：マイナスのエラーコード
 
-	※clist_set_cold()の後に呼び出されないといけない
-	※この関数は1度だけ呼ぶ
-	※dataは書き込み中ノードにあるデータサイズ分のメモリ領域が確保されている必要がある
+	※clist_set_end()の後に呼び出されないといけない
 */
 int clist_pull_end(void *data, struct clist_controller *clist_ctl)
 {
@@ -543,14 +544,17 @@ int clist_pull_end(void *data, struct clist_controller *clist_ctl)
 
 	len = clist_ctl->w_curr->curr_ptr - clist_ctl->w_curr->data;
 
-	if(CLIST_IS_HOT(clist_ctl)){
+	if(CLIST_IS_END(clist_ctl)){
+
+		memcpy(data, clist_ctl->w_curr->data, len);
+		clist_ctl->w_curr->curr_ptr -= len;
+
+		return byte_to_objs(clist_ctl, len);
+	}
+	else{
 		return -ECANCELED;
 	}
-
-	memcpy(data, clist_ctl->w_curr->data, len);
-	clist_ctl->w_curr->curr_ptr -= len;
-
-	return byte_to_objs(clist_ctl, len);
 }
 EXPORT_SYMBOL(clist_pull_end);
+
 

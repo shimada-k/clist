@@ -345,7 +345,7 @@ int clist_pull_one(void *data, struct clist_controller *clist_ctl)
 /*
 	循環リストにデータを追加する関数
 	@data データが入っているアドレス
-	@len データの長さ（バイト）
+	@n オブジェクトの個数
 	return 成功：追加したオブジェクトの個数　失敗：マイナスのエラーコード
 
 	※この関数がlen以下の値を返した時は循環リストが一周しているのでユーザ側で再送するか、データ量を再検討する必要がある
@@ -387,7 +387,7 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 			ret += clist_ctl->nr_composed;
 		}
 	}
-	else{	/* len < write_scope */
+	else{	/* n < write_scope */
 
 		if(n >= n_first){		/* 現在のノードに書き込めるだけ書き込む */
 
@@ -423,11 +423,11 @@ int clist_push_order(const void *data, int n, struct clist_controller *clist_ctl
 				ret += n - ret;
 			}
 		}
-		else{	/* len < n_first */
-			/* lenだけ書き込む */
+		else{	/* n < n_first */
+			/* nだけ書き込む */
 			printf("ret:%d, n:%d\n", ret, n);
 
-			clist_wmemcpy(data + objs_to_byte(clist_ctl, ret), n, clist_ctl);
+			clist_wmemcpy(data, n, clist_ctl);
 			ret += n;
 		}
 	}

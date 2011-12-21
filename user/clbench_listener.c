@@ -30,7 +30,7 @@ struct lb_object{	/* やりとりするオブジェクト */
 
 int dev, out;	/* ファイルディスクリプタ */
 int count;
-void *handler_buffer;
+void *buffer;
 
 /*
 	カーネルからのシグナルのハンドラ関数
@@ -41,9 +41,9 @@ void clbench_handler(int sig)
 	ssize_t size;
 
 	/* カーネルのメモリを読む */
-	size = read(dev, handler_buffer, sizeof(struct lb_object) * READ_NR_OBJECT);
+	size = read(dev, buffer, sizeof(struct lb_object) * READ_NR_OBJECT);
 	/* ファイルに書き出す */
-	write(out, handler_buffer, (size_t)size);
+	write(out, buffer, (size_t)size);
 
 	printf("read(オブジェクト数): %d\n", (int)(size / sizeof(struct lb_object)));
 
@@ -54,14 +54,14 @@ void clbench_handler(int sig)
 
 int main(int argc, char *argv[])
 {
-	int piece, signo;
+	int nr_wcurr, signo, nr_picked, grain;
 	struct sigaction act;
 	ssize_t size;
 
 	dev = open("/dev/clbench", O_RDONLY);
 	out = open("./output.clbench", O_CREAT|O_WRONLY|O_TRUNC);
 
-	handler_buffer = (struct lb_object *)calloc(READ_NR_OBJECT, sizeof(struct lb_object));
+	buffer = (struct lb_object *)calloc(READ_NR_OBJECT, sizeof(struct lb_object));
 
 	/* デバイスの準備（この順番じゃないとダメ） */
 	ioctl(dev, IOC_SET_SIGNO, SIGUSR1);
@@ -90,24 +90,45 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	/***						***
+	***	シグナルを受信するとここに到達する	***
+	***						***/
+
 	/* カーネル側に終了通知を送る */
-	ioctl(dev, IOC_USEREND_NOTIFY, &piece);
+	ioctl(dev, IOC_USEREND_NOTIFY, &nr_wcurr);
 
-	printf("piece:%d\n", piece);
+	printf("wcurr_len:%d\n", nr_wcurr);
 
+	/* clist_pull_end()でpull残しがないように大きい方でメモリを確保 */
+	if(nr_wcurr >= READ_NR_OBJECT){
+		/* 一端freeして、再度calloc */
+		free(buffer);
+		buffer = calloc(nr_wcurr, sizeof(struct lb_object));
+
+		grain = nr_wcurr;
+	}
+	else{
+		/* bufferをそのまま使うのでcalloc無し */
+		grain = READ_NR_OBJECT;
+	}
+
+	/* grainだけひたすら読んでread(2)が0を返したらbreakする */
 	while(1){
-		/* カーネルメモリを読む */
-		size = read(dev, handler_buffer, READ_NR_OBJECT);
+		/* カーネルのメモリを読む */
+		size = read(dev, buffer, sizeof(struct lb_object) * grain);
+
+		if(size == 0){	/* ここを通るということはclist_benchmark側がSIGRESET_ACCEPTEDになったということ */
+			break;
+		}
+
 		/* ファイルに書き出す */
-		write(out, handler_buffer, (size_t)size);
+		write(out, buffer, (size_t)size);
+
+		printf("read(オブジェクト数): %d\n", (int)(size / sizeof(struct lb_object)));
 
 		count += (int)(size / sizeof(struct lb_object));
 
-		printf("USEREND_NOTIFY後 read(オブジェクト数): %d\n", (int)(size / sizeof(struct lb_object)));
-
-		if(size == 0){
-			break;
-		}
+		lseek(dev, 0, SEEK_SET);
 	}
 
 	putchar('\n');
@@ -120,7 +141,7 @@ int main(int argc, char *argv[])
 	printf("clistのノードに含まれるオブジェクト数：%d\n", 100);
 
 	/* リソース解放 */
-	free(handler_buffer);
+	free(buffer);
 
 	close(out);
 	close(dev);
