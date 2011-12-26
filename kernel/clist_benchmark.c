@@ -12,25 +12,8 @@
 #include <linux/clist.h>	/* 循環リストライブラリ */
 
 
-/*
-+	注意！	ユーザ空間とやりとりするオブジェクトはパッディングが発生しない構造にすること
-		この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
-
-		取得したいイベントにあわせてこの構造体とclbench_add_object()を作成する
-*/
-struct object{
-	pid_t pid, padding;
-	int src_cpu, dst_cpu;
-	long sec, usec;
-};
-
-
 #define MODNAME "clist_benchmark"
-static char *log_prefix = "module[clist_benchmark]";
-#define MINOR_COUNT 1 // num of minor number
-
-static dev_t dev_id;  /* デバイス番号 */
-static struct cdev c_dev; /* キャラクタデバイス用構造体 */
+#define MINOR_COUNT 1
 
 #define IO_MAGIC				'k'
 #define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)		/* ユーザアプリ終了時 */
@@ -60,8 +43,72 @@ struct signal_spec{	/* ユーザ空間とシグナルで通信するための管
 	struct timer_list flush_timer;
 };
 
+static char *log_prefix = "module[clist_benchmark]";
+
+static dev_t dev_id;  /* デバイス番号 */
+static struct cdev c_dev; /* キャラクタデバイス用構造体 */
+
 static struct clist_controller *clist_ctl;
 static struct signal_spec sigspec;
+
+
+
+/**********************************************************
+*
+*	イベント固有の設定
+*	扱うイベントに合わせて変更が必要な箇所
+*
+**********************************************************/
+
+/*
+	注意！	ユーザ空間とやりとりするオブジェクトはパッディングが発生しない構造にすること
+		この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
+
+		取得したいイベントにあわせてこの構造体とclbench_add_object()を作成する
+*/
+struct object{
+	pid_t pid, padding;
+	int src_cpu, dst_cpu;
+	long sec, usec;
+};
+
+/*
+	balance_tasks()@sched.cで呼び出される関数 ロードバランスが行われている箇所で呼び出される
+	@p ロードバランスされたtask_structのアドレス
+	@src_cpu 最も忙しいCPU番号
+	@this_cpu ロードバランス先のCPU番号
+
+	※カーネルイベントが補足される箇所にこの関数を挿入する
+*/
+void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
+{
+	struct object lb;
+	struct timeval t;
+
+	if(sigspec.sr_status != SIG_READY){	/* シグナルを送信できる状態かどうか */
+		return;
+	}
+
+	do_gettimeofday(&t);
+
+	lb.pid = p->pid;
+	lb.sec = (long)t.tv_sec;
+	lb.usec = (long)t.tv_usec;
+	lb.src_cpu = src_cpu;
+	lb.dst_cpu = this_cpu;
+
+	/* この関数はフック先でしか実行されていないので、エラー処理は行っていない */
+
+	clist_push_one((void *)&lb, clist_ctl);
+}
+EXPORT_SYMBOL(clbench_add_object);
+
+/**********************************************************
+	イベント固有の設定ここまで
+**********************************************************/
+
+
+
 
 extern int send_sig_info(int sig, struct siginfo *info, struct task_struct *p);
 
@@ -211,7 +258,7 @@ static long clbench_ioctl(struct file *flip, unsigned int cmd, unsigned long arg
 
 			clist_ctl = clist_alloc(submit_spec.nr_node, submit_spec.node_nr_composed, sizeof(struct object));
 
-			if(clist_ctl == NULL){
+			if(clist_ctl == NULL){	/* エラー処理 */
 				printk(KERN_INFO "%s : clist_alloc() failed returned NULL\n");
 				retval = -ENOMEM;
 			}
@@ -309,38 +356,6 @@ static void __exit clbench_exit(void)
 
 module_init(clbench_init);
 module_exit(clbench_exit);
-
-
-/*
-	balance_tasks()@sched.cで呼び出される関数 ロードバランスが行われている箇所で呼び出される
-	@p ロードバランスされたtask_structのアドレス
-	@src_cpu 最も忙しいCPU番号
-	@this_cpu ロードバランス先のCPU番号
-
-	※カーネルイベントが補足される箇所にこの関数を挿入する
-*/
-void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
-{
-	struct object lb;
-	struct timeval t;
-
-	if(sigspec.sr_status != SIG_READY){	/* シグナルを送信できる状態かどうか */
-		return;
-	}
-
-	do_gettimeofday(&t);
-
-	lb.pid = p->pid;
-	lb.sec = (long)t.tv_sec;
-	lb.usec = (long)t.tv_usec;
-	lb.src_cpu = src_cpu;
-	lb.dst_cpu = this_cpu;
-
-	/* この関数はフック先でしか実行されていないので、エラー処理は行っていない */
-
-	clist_push_one((void *)&lb, clist_ctl);
-}
-EXPORT_SYMBOL(clbench_add_object);
 
 MODULE_DESCRIPTION("clist-benchmark");
 MODULE_LICENSE("GPL");

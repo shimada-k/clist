@@ -8,29 +8,46 @@
 #include <sys/ioctl.h>
 
 
+
+/**********************************************************
+*
+*	イベント固有の設定
+*	扱うイベントに合わせて変更が必要な箇所
+*
+**********************************************************/
+
+#define DEVICE_FILE			"/dev/clbench"
+#define FLUSH_PERIOD			1500	/* デバイス側でCLISTに対してポーリングする周期（ミリ秒で指定） */
+#define CLIST_NR_NODE		10	/* CLISTでのノード数 */
+#define CLIST_NODE_NR_COMPOSED	100	/* CLISTで1ノードに含まれるオブジェクト数 */
+#define READ_NR_OBJECT		250	/* デバイスファイルに読みにいく際の最大オブジェクト数 */
+
+/*
+	注意！	ユーザ空間とやりとりする構造体はパッディングが発生しない構造にすること
+		この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
+		この構造体はドライバ側のものと同一であること
+*/
+struct object{
+	pid_t pid, padding;
+	int src_cpu, dst_cpu;
+	long sec, usec;
+};
+
+/**********************************************************
+	イベント固有の設定ここまで
+**********************************************************/
+
+
 #define IO_MAGIC				'k'
 #define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)	/* ユーザアプリ終了時 */
 #define IOC_SIGRESET_REQUEST		_IO(IO_MAGIC, 1)	/* send_sig_argをリセット要求 */
 #define IOC_SUBMIT_SPEC			_IOW(IO_MAGIC, 2, void)	/* ユーザからのパラメータ設定 */
-
-
-#define READ_NR_OBJECT	250
 
 struct ioc_submit_spec{
 	int pid;
 	int signo, flush_period;
 	int nr_node, node_nr_composed;
 	int dummy;	/* padding防止のための変数 */
-};
-
-/*
-	/dev/clbenchからデータを読んでファイルに書き出すプログラム
-*/
-
-struct lb_object{	/* やりとりするオブジェクト */
-	pid_t pid, padding;
-	int src_cpu, dst_cpu;
-	long sec, usec;
 };
 
 int dev, out;	/* ファイルディスクリプタ */
@@ -46,13 +63,13 @@ void clbench_handler(int sig)
 	ssize_t size;
 
 	/* カーネルのメモリを読む */
-	size = read(dev, buffer, sizeof(struct lb_object) * READ_NR_OBJECT);
+	size = read(dev, buffer, sizeof(struct object) * READ_NR_OBJECT);
 	/* ファイルに書き出す */
 	write(out, buffer, (size_t)size);
 
-	printf("read(オブジェクト数): %d\n", (int)(size / sizeof(struct lb_object)));
+	printf("read(オブジェクト数): %d\n", (int)(size / sizeof(struct object)));
 
-	count += (int)(size / sizeof(struct lb_object));
+	count += (int)(size / sizeof(struct object));
 
 	lseek(dev, 0, SEEK_SET);
 }
@@ -64,17 +81,17 @@ int main(int argc, char *argv[])
 	struct ioc_submit_spec submit_spec;
 	ssize_t size;
 
-	dev = open("/dev/clbench", O_RDONLY);
+	dev = open(DEVICE_FILE, O_RDONLY);
 	out = open("./output.clbench", O_CREAT|O_WRONLY|O_TRUNC);
 
-	buffer = (struct lb_object *)calloc(READ_NR_OBJECT, sizeof(struct lb_object));
+	buffer = (struct object *)calloc(READ_NR_OBJECT, sizeof(struct object));
 
 	/* デバイスの準備 */
 	submit_spec.pid = (int)getpid();
 	submit_spec.signo = SIGUSR1;
-	submit_spec.flush_period = 1500;
-	submit_spec.nr_node = 10;
-	submit_spec.node_nr_composed = 100;
+	submit_spec.flush_period = FLUSH_PERIOD;
+	submit_spec.nr_node = CLIST_NR_NODE;
+	submit_spec.node_nr_composed = CLIST_NODE_NR_COMPOSED;
 
 	ioctl(dev, IOC_SUBMIT_SPEC, &submit_spec);
 
@@ -112,7 +129,7 @@ int main(int argc, char *argv[])
 	if(nr_wcurr >= READ_NR_OBJECT){
 		/* 一端freeして、再度calloc */
 		free(buffer);
-		buffer = calloc(nr_wcurr, sizeof(struct lb_object));
+		buffer = calloc(nr_wcurr, sizeof(struct object));
 
 		grain = nr_wcurr;
 	}
@@ -124,7 +141,7 @@ int main(int argc, char *argv[])
 	/* grainだけひたすら読んでread(2)が0を返したらbreakする */
 	while(1){
 		/* カーネルのメモリを読む */
-		size = read(dev, buffer, sizeof(struct lb_object) * grain);
+		size = read(dev, buffer, sizeof(struct object) * grain);
 
 		if(size == 0){	/* ここを通るということはclist_benchmark側がSIGRESET_ACCEPTEDになったということ */
 			break;
@@ -133,9 +150,9 @@ int main(int argc, char *argv[])
 		/* ファイルに書き出す */
 		write(out, buffer, (size_t)size);
 
-		printf("read(オブジェクト数): %d\n", (int)(size / sizeof(struct lb_object)));
+		printf("read(オブジェクト数): %d\n", (int)(size / sizeof(struct object)));
 
-		count += (int)(size / sizeof(struct lb_object));
+		count += (int)(size / sizeof(struct object));
 
 		lseek(dev, 0, SEEK_SET);
 	}
