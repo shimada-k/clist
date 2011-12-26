@@ -156,18 +156,18 @@ void *recieve_worker(void *p)
 
 void recieve_end(struct clist_controller *clist_ctl)
 {
-	int wcurr_len, pick_len, i, grain;
+	int nr_wcurr, nr_picked, i, grain;
 	struct sample_object *sobj;
 
-	wcurr_len = clist_set_end(clist_ctl, NULL, NULL);
+	nr_wcurr = clist_set_end(clist_ctl, NULL, NULL);
 
 #ifdef DEBUG
-	printf("recieve_end() wcurr_len:%d\n", wcurr_len);
+	printf("recieve_end() nr_wcurr:%d\n", nr_wcurr);
 #endif
 
 	/* clist_pull_end()でpull残しがないように大きい方でメモリを確保 */
-	if(wcurr_len >= RECV_GRAIN_SIZE){
-		grain = wcurr_len;
+	if(nr_wcurr >= RECV_GRAIN_SIZE){
+		grain = nr_wcurr;
 	}
 	else{
 		grain = RECV_GRAIN_SIZE;
@@ -176,13 +176,13 @@ void recieve_end(struct clist_controller *clist_ctl)
 	sobj = calloc(grain, sizeof(struct sample_object));
 
 	while(1){
-		pick_len = clist_pull_order((void *)sobj, grain, clist_ctl);
+		nr_picked = clist_pull_order((void *)sobj, grain, clist_ctl);
 
-		if(pick_len == 0){
+		if(nr_picked == 0){
 			puts("clist_pull_order() done, Now clist_pull_end()");
-			pick_len = clist_pull_end((void *)sobj, clist_ctl);
+			nr_picked = clist_pull_end((void *)sobj, clist_ctl);
 #ifdef DEBUG
-			for(i = 0; i < pick_len; i++){
+			for(i = 0; i < nr_picked; i++){
 				printf("\t##sobj[%d].id_no:%llu\n", i, sobj[i].id_no);
 			}
 			puts("\t*****");
@@ -191,7 +191,7 @@ void recieve_end(struct clist_controller *clist_ctl)
 		}
 		else{
 #ifdef DEBUG
-			for(i = 0; i < pick_len; i++){
+			for(i = 0; i < nr_picked; i++){
 				printf("\t#sobj[%d].id_no:%llu\n", i, sobj[i].id_no);
 			}
 			puts("\t*****");

@@ -11,12 +11,17 @@
 #define IO_MAGIC				'k'
 #define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)	/* ユーザアプリ終了時 */
 #define IOC_SIGRESET_REQUEST		_IO(IO_MAGIC, 1)	/* send_sig_argをリセット要求 */
-#define IOC_SET_SIGNO			_IO(IO_MAGIC, 2)	/* シグナル番号を設定 */
-#define IOC_SET_NR_NODE			_IO(IO_MAGIC, 3)	/* データの転送粒度を設定 */
-#define IOC_SET_NODE_NR_COMPOSED		_IO(IO_MAGIC, 4)	/* データの転送粒度を設定 */
-#define IOC_SET_PID				_IO(IO_MAGIC, 5)	/* PIDを設定 */
+#define IOC_SUBMIT_SPEC			_IOW(IO_MAGIC, 2, void)	/* ユーザからのパラメータ設定 */
+
 
 #define READ_NR_OBJECT	250
+
+struct ioc_submit_spec{
+	int pid;
+	int signo, flush_period;
+	int nr_node, node_nr_composed;
+	int dummy;	/* padding防止のための変数 */
+};
 
 /*
 	/dev/clbenchからデータを読んでファイルに書き出すプログラム
@@ -56,6 +61,7 @@ int main(int argc, char *argv[])
 {
 	int nr_wcurr, signo, nr_picked, grain;
 	struct sigaction act;
+	struct ioc_submit_spec submit_spec;
 	ssize_t size;
 
 	dev = open("/dev/clbench", O_RDONLY);
@@ -63,11 +69,14 @@ int main(int argc, char *argv[])
 
 	buffer = (struct lb_object *)calloc(READ_NR_OBJECT, sizeof(struct lb_object));
 
-	/* デバイスの準備（この順番じゃないとダメ） */
-	ioctl(dev, IOC_SET_SIGNO, SIGUSR1);
-	ioctl(dev, IOC_SET_NR_NODE, 10);
-	ioctl(dev, IOC_SET_NODE_NR_COMPOSED, 100);
-	ioctl(dev, IOC_SET_PID, (int)getpid());
+	/* デバイスの準備 */
+	submit_spec.pid = (int)getpid();
+	submit_spec.signo = SIGUSR1;
+	submit_spec.flush_period = 1500;
+	submit_spec.nr_node = 10;
+	submit_spec.node_nr_composed = 100;
+
+	ioctl(dev, IOC_SUBMIT_SPEC, &submit_spec);
 
 	/* シグナルハンドリングの準備 */
 	act.sa_handler = clbench_handler;

@@ -11,6 +11,20 @@
 
 #include <linux/clist.h>	/* 循環リストライブラリ */
 
+
+/*
++	注意！	ユーザ空間とやりとりするオブジェクトはパッディングが発生しない構造にすること
+		この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
+
+		取得したいイベントにあわせてこの構造体とclbench_add_object()を作成する
+*/
+struct object{
+	pid_t pid, padding;
+	int src_cpu, dst_cpu;
+	long sec, usec;
+};
+
+
 #define MODNAME "clist_benchmark"
 static char *log_prefix = "module[clist_benchmark]";
 #define MINOR_COUNT 1 // num of minor number
@@ -19,49 +33,35 @@ static dev_t dev_id;  /* デバイス番号 */
 static struct cdev c_dev; /* キャラクタデバイス用構造体 */
 
 #define IO_MAGIC				'k'
-#define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)	/* ユーザアプリ終了時 */
-#define IOC_SIGRESET_REQUEST		_IO(IO_MAGIC, 1)	/* send_sig_argをリセット要求 */
-#define IOC_SET_SIGNO			_IO(IO_MAGIC, 2)	/* シグナル番号を設定 */
-#define IOC_SET_NR_NODE			_IO(IO_MAGIC, 3)	/* データの転送粒度を設定 */
-#define IOC_SET_NODE_NR_COMPOSED		_IO(IO_MAGIC, 4)	/* データの転送粒度を設定 */
-#define IOC_SET_PID				_IO(IO_MAGIC, 5)	/* PIDを設定 */
+#define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)		/* ユーザアプリ終了時 */
+#define IOC_SIGRESET_REQUEST		_IO(IO_MAGIC, 1)		/* signal_spec構造体のリセット要求 */
+#define IOC_SUBMIT_SPEC			_IOW(IO_MAGIC, 2, void)	/* ユーザからのパラメータ設定 */
 
 enum signal_status{
-	PID_READY,
-	SIGNO_READY,
-	NR_NODE_READY,
-	NODE_NR_COMPOSED_READY,
 	SIG_READY,
 	SIGRESET_REQUEST,
 	SIGRESET_ACCEPTED,
 	MAX_STATUS
 };
 
-
-/*
-+	注意！	ユーザ空間とやりとりするオブジェクトはパッディングが発生しない構造にすること。
-		メンバのsizeof()の合計がオブジェクトのsizeof()と一致するようにすること
-*/
-struct lb_object{	/* やりとりするオブジェクト */
-	pid_t pid, padding;
-	int src_cpu, dst_cpu;
-	long sec, usec;
+/* ユーザからデバイス初期化時に送られるデータ構造 */
+struct ioc_submit_spec{
+	int pid;
+	int signo, flush_period;
+	int nr_node, node_nr_composed;
+	int dummy;
 };
 
 struct signal_spec{	/* ユーザ空間とシグナルで通信するための管理用構造体 */
 	enum signal_status sr_status;
-	int signo;
+	int signo, flush_period;
 	struct siginfo info;
 	struct task_struct *t;
+	struct timer_list flush_timer;
 };
-
-static int nr_node, node_nr_composed;
 
 static struct clist_controller *clist_ctl;
 static struct signal_spec sigspec;
-static struct timer_list flush_timer;
-
-#define FLUSH_PERIOD	1500	/* この周期でタイマーが設定される（単位：ミリ秒） */
 
 extern int send_sig_info(int sig, struct siginfo *info, struct task_struct *p);
 
@@ -94,7 +94,7 @@ static ssize_t clbench_read(struct file* filp, char* buf, size_t count, loff_t* 
 
 	if(sigspec.sr_status == SIG_READY || sigspec.sr_status == SIGRESET_REQUEST){
 
-		objects = count / sizeof(struct lb_object);
+		objects = count / sizeof(struct object);
 
 		/* 中間メモリを確保 */
 		temp_mem = (void *)kzalloc(count, GFP_KERNEL);
@@ -141,6 +141,7 @@ static long clbench_ioctl(struct file *flip, unsigned int cmd, unsigned long arg
 	int retval = -1;
 	struct pid *p;
 	struct task_struct *t;
+	struct ioc_submit_spec submit_spec;
 
 	switch(cmd){
 		case IOC_USEREND_NOTIFY:	/* USEREND_NOTIFYがioctl(2)される前にユーザ側でsleep(PERIOD)してくれている */
@@ -171,6 +172,7 @@ static long clbench_ioctl(struct file *flip, unsigned int cmd, unsigned long arg
 			if(sigspec.sr_status == SIG_READY){
 				sigspec.sr_status = SIGRESET_REQUEST;
 				printk(KERN_INFO "%s : IOC_SIGRESET_REQUES recieved\n", log_prefix);
+				retval = 1;
 			}
 			else{
 				printk(KERN_INFO "%s : IOC_SIGRESET_REQUEST was regarded\n", log_prefix);
@@ -178,57 +180,48 @@ static long clbench_ioctl(struct file *flip, unsigned int cmd, unsigned long arg
 			}
 			break;
 
-		case IOC_SET_SIGNO:
-			/* シグナル番号の設定 */
-			printk(KERN_INFO "%s : IOC_SET_SIGNO accepted\n", log_prefix);
-			sigspec.signo = arg;
-			sigspec.info.si_signo = arg;
+		case IOC_SUBMIT_SPEC:
 
-			sigspec.sr_status = SIGNO_READY;
+			copy_from_user(&submit_spec, (struct ioc_submit_spec __user *)arg, sizeof(struct ioc_submit_spec));
 
-			retval = 1;
-			break;
+			printk(KERN_INFO "%s : IOC_SET_SPEC pid:%d, flush_period:%d signo:%d nr_node:%d node_nr_cmposed:%d\n",
+				log_prefix, submit_spec.pid, submit_spec.flush_period, submit_spec.signo, submit_spec.nr_node, submit_spec.node_nr_composed);
 
-		case IOC_SET_NR_NODE:
-			/* 循環リストのノード数の設定 */
-			printk(KERN_INFO "%s : IOC_SET_NR_NODE accepted arg = %lu\n", log_prefix, arg);
-
-			sigspec.sr_status = NR_NODE_READY;
-			nr_node = (int)arg;
-
-			retval = 1;
-			break;
-
-		case IOC_SET_NODE_NR_COMPOSED:
-			/* 循環リストのノードのオブジェクト数の設定 */
-			printk(KERN_INFO "%s : IOC_SET_NODE_NR_COMPOSED accepted arg = %lu\n", log_prefix, arg);
-
-			sigspec.sr_status = NODE_NR_COMPOSED_READY;
-			node_nr_composed = (int)arg;
-
-			retval = 1;
-			break;
-
-		case IOC_SET_PID:
-			printk(KERN_INFO "%s : IOC_SET_PID accepted\n", log_prefix);
-			p = find_vpid(arg);	/* get struct pid* from arg */
-			t = pid_task(p, PIDTYPE_PID);	/* get struct task_struct* from p */
+			/* pidの準備 */
+			p = find_vpid(submit_spec.pid);
+			t = pid_task(p, PIDTYPE_PID);
 			sigspec.t = t;
 			sigspec.info.si_errno = 0;
 			sigspec.info.si_code = SI_KERNEL;
 			sigspec.info.si_pid = 0;
 			sigspec.info.si_uid = 0;
 
+			/* signoの準備 */
+			sigspec.signo = submit_spec.signo;
+			sigspec.info.si_signo = submit_spec.signo;
+
+			/* flush_periodの準備 */
+			sigspec.flush_period = submit_spec.flush_period;
+
+
+			/* 準備完了 */
 			sigspec.sr_status = SIG_READY;
 
-			retval = 1;
-			break;
-	}
+			printk(KERN_INFO "%s : signal ready, object-size is %ld byte\n", log_prefix, sizeof(struct object));
 
-	if(sigspec.sr_status == SIG_READY){	/* clbench_add_object()を実行できる状態にする */
-		printk(KERN_INFO "%s : signal ready, object-size is %ld byte\n", log_prefix, sizeof(struct lb_object));
-		clist_ctl = clist_alloc(nr_node, node_nr_composed, sizeof(struct lb_object));
-		mod_timer(&flush_timer, jiffies + msecs_to_jiffies(FLUSH_PERIOD));
+			clist_ctl = clist_alloc(submit_spec.nr_node, submit_spec.node_nr_composed, sizeof(struct object));
+
+			if(clist_ctl == NULL){
+				printk(KERN_INFO "%s : clist_alloc() failed returned NULL\n");
+				retval = -ENOMEM;
+			}
+			else{
+				mod_timer(&sigspec.flush_timer, jiffies + msecs_to_jiffies(sigspec.flush_period));
+				printk(KERN_INFO "%s : device setup complete\n", log_prefix);
+				retval = 1;
+			}
+
+			break;
 	}
 
 	return retval;
@@ -261,38 +254,9 @@ static void clbench_flush(unsigned long __data)
 		}
 
 		/* 次のタイマをセット */
-		mod_timer(&flush_timer, jiffies + msecs_to_jiffies(FLUSH_PERIOD));
+		mod_timer(&sigspec.flush_timer, jiffies + msecs_to_jiffies(sigspec.flush_period));
 	}
 }
-
-/*
-	balance_tasks()@sched.cで呼び出される関数 ロードバランスが行われている箇所で呼び出される
-	@p ロードバランスされたtask_structのアドレス
-	@src_cpu 最も忙しいCPU番号
-	@this_cpu ロードバランス先のCPU番号
-*/
-void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
-{
-	struct lb_object lb;
-	struct timeval t;
-
-	if(sigspec.sr_status != SIG_READY){	/* シグナルを送信できる状態かどうか */
-		return;
-	}
-
-	do_gettimeofday(&t);
-
-	lb.pid = p->pid;
-	lb.sec = (long)t.tv_sec;
-	lb.usec = (long)t.tv_usec;
-	lb.src_cpu = src_cpu;
-	lb.dst_cpu = this_cpu;
-
-	/* この関数はフック先でしか実行されていないので、エラー処理は行っていない */
-
-	clist_push_one((void *)&lb, clist_ctl);
-}
-EXPORT_SYMBOL(clbench_add_object);
 
 
 /*
@@ -320,12 +284,9 @@ static int __init clbench_init(void)
 		return ret;
 	}
 
-	setup_timer(&flush_timer, clbench_flush, 0);
+	setup_timer(&sigspec.flush_timer, clbench_flush, 0);
 
 	sigspec.sr_status = MAX_STATUS;
-
-	printk(KERN_INFO "%s : clbench is loaded\n", log_prefix);
-	printk(KERN_INFO "%s : clbench %d %d\n", log_prefix, IOC_SET_SIGNO, IOC_SET_PID);
 
 	return 0;
 }
@@ -337,7 +298,7 @@ static void __exit clbench_exit(void)
 {
 	cdev_del(&c_dev);	/* デバイスの削除 */
 
-	del_timer_sync(&flush_timer);	/* タイマの終了 */
+	del_timer_sync(&sigspec.flush_timer);	/* タイマの終了 */
 
 	/* 循環リストを解放 */
 	clist_free(clist_ctl);
@@ -349,6 +310,38 @@ static void __exit clbench_exit(void)
 module_init(clbench_init);
 module_exit(clbench_exit);
 
-MODULE_DESCRIPTION("Load-Balance profiler");
+
+/*
+	balance_tasks()@sched.cで呼び出される関数 ロードバランスが行われている箇所で呼び出される
+	@p ロードバランスされたtask_structのアドレス
+	@src_cpu 最も忙しいCPU番号
+	@this_cpu ロードバランス先のCPU番号
+
+	※カーネルイベントが補足される箇所にこの関数を挿入する
+*/
+void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
+{
+	struct object lb;
+	struct timeval t;
+
+	if(sigspec.sr_status != SIG_READY){	/* シグナルを送信できる状態かどうか */
+		return;
+	}
+
+	do_gettimeofday(&t);
+
+	lb.pid = p->pid;
+	lb.sec = (long)t.tv_sec;
+	lb.usec = (long)t.tv_usec;
+	lb.src_cpu = src_cpu;
+	lb.dst_cpu = this_cpu;
+
+	/* この関数はフック先でしか実行されていないので、エラー処理は行っていない */
+
+	clist_push_one((void *)&lb, clist_ctl);
+}
+EXPORT_SYMBOL(clbench_add_object);
+
+MODULE_DESCRIPTION("clist-benchmark");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("K.Shimada");
