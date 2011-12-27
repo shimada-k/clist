@@ -23,13 +23,13 @@
 #define READ_NR_OBJECT		250	/* デバイスファイルに読みにいく際の最大オブジェクト数 */
 
 /*
-	注意！	ユーザ空間とやりとりする構造体はパッディングが発生しない構造にすること
-		この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
-		この構造体はドライバ側のものと同一であること
+	注意！	・ユーザ空間とやりとりする構造体はパッディングが発生しない構造にすること
+		・この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
+		・この構造体の定義はドライバ側のものと同一であること
 */
 struct object{
-	pid_t pid, padding;
-	int src_cpu, dst_cpu;
+	unsigned long i_ino;
+	long long ppos;
 	long sec, usec;
 };
 
@@ -41,7 +41,7 @@ struct object{
 #define IO_MAGIC				'k'
 #define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)	/* ユーザアプリ終了時 */
 #define IOC_SIGRESET_REQUEST		_IO(IO_MAGIC, 1)	/* send_sig_argをリセット要求 */
-#define IOC_SUBMIT_SPEC			_IOW(IO_MAGIC, 2, void)	/* ユーザからのパラメータ設定 */
+#define IOC_SUBMIT_SPEC			_IOW(IO_MAGIC, 2, struct signal_spec *)	/* ユーザからのパラメータ設定 */
 
 struct ioc_submit_spec{
 	int pid;

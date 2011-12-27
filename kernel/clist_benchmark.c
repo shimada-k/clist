@@ -11,14 +11,13 @@
 
 #include <linux/clist.h>	/* 循環リストライブラリ */
 
-
 #define MODNAME "clist_benchmark"
 #define MINOR_COUNT 1
 
 #define IO_MAGIC				'k'
 #define IOC_USEREND_NOTIFY			_IO(IO_MAGIC, 0)		/* ユーザアプリ終了時 */
 #define IOC_SIGRESET_REQUEST		_IO(IO_MAGIC, 1)		/* signal_spec構造体のリセット要求 */
-#define IOC_SUBMIT_SPEC			_IOW(IO_MAGIC, 2, void)	/* ユーザからのパラメータ設定 */
+#define IOC_SUBMIT_SPEC			_IOW(IO_MAGIC, 2, struct signal_spec *)	/* ユーザからのパラメータ設定 */
 
 enum signal_status{
 	SIG_READY,
@@ -61,14 +60,14 @@ static struct signal_spec sigspec;
 **********************************************************/
 
 /*
-	注意！	ユーザ空間とやりとりするオブジェクトはパッディングが発生しない構造にすること
-		この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
+	注意！	・ユーザ空間とやりとりするオブジェクトはパッディングが発生しない構造にすること
+		・この構造体のメンバのsizeof()の合計がsizeof(struct object)と一致するようにすること
 
 		取得したいイベントにあわせてこの構造体とclbench_add_object()を作成する
 */
 struct object{
-	pid_t pid, padding;
-	int src_cpu, dst_cpu;
+	unsigned long i_ino;
+	long long ppos;
 	long sec, usec;
 };
 
@@ -80,9 +79,9 @@ struct object{
 
 	※カーネルイベントが補足される箇所にこの関数を挿入する
 */
-void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
+void clbench_add_object(unsigned long i_ino, long long ppos)
 {
-	struct object lb;
+	struct object obj;
 	struct timeval t;
 
 	if(sigspec.sr_status != SIG_READY){	/* シグナルを送信できる状態かどうか */
@@ -91,22 +90,20 @@ void clbench_add_object(struct task_struct *p, int src_cpu, int this_cpu)
 
 	do_gettimeofday(&t);
 
-	lb.pid = p->pid;
-	lb.sec = (long)t.tv_sec;
-	lb.usec = (long)t.tv_usec;
-	lb.src_cpu = src_cpu;
-	lb.dst_cpu = this_cpu;
+	obj.i_ino = i_ino;
+	obj.ppos = ppos;
+	obj.sec = (long)t.tv_sec;
+	obj.usec = (long)t.tv_usec;
 
 	/* この関数はフック先でしか実行されていないので、エラー処理は行っていない */
 
-	clist_push_one((void *)&lb, clist_ctl);
+	clist_push_one((void *)&obj, clist_ctl);
 }
 EXPORT_SYMBOL(clbench_add_object);
 
 /**********************************************************
 	イベント固有の設定ここまで
 **********************************************************/
-
 
 
 
@@ -313,7 +310,7 @@ static int __init clbench_init(void)
 {
 	int ret;
 
-	// キャラクタデバイス番号の動的取得
+	/* キャラクタデバイス番号の動的取得 */
 	ret = alloc_chrdev_region(&dev_id, 0, MINOR_COUNT, MODNAME);
 
 	if(ret < 0){
@@ -348,7 +345,9 @@ static void __exit clbench_exit(void)
 	del_timer_sync(&sigspec.flush_timer);	/* タイマの終了 */
 
 	/* 循環リストを解放 */
-	clist_free(clist_ctl);
+	if(clist_ctl){
+		clist_free(clist_ctl);
+	}
 
 	unregister_chrdev_region(dev_id, MINOR_COUNT);	/* メジャー番号の解放 */
 	printk(KERN_INFO "%s : clbench is removed\n", log_prefix);
